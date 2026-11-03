@@ -30,6 +30,7 @@ def handle_generate(
     cfg_scale: float,
     random_seed: bool,
     seed_input: int,
+    model_id: str,
 ) -> Tuple[Optional[str], Optional[int], str]:
     """Generates audio and handles errors for the UI."""
     if not prompt or not prompt.strip():
@@ -46,6 +47,7 @@ def handle_generate(
             steps=int(steps),
             cfg_scale=float(cfg_scale),
             seed=actual_seed,
+            model_id=model_id,
         )
         return wav_path, used_seed, f"✅ 生成完了: {os.path.basename(wav_path)}"
     except ModelLoadError as e:
@@ -97,7 +99,7 @@ def create_ui() -> gr.Blocks:
         # Header Row
         with gr.Row(elem_id="header-row"):
             with gr.Column(scale=8):
-                gr.Markdown("# 🎵 Stable Audio Studio\n*Local Music Generation AI for Apple Silicon*")
+                gr.Markdown("# 🎵 Stable Audio Studio\n*Powered by Stable Audio 3 Medium (Apple Silicon / MPS)*")
             with gr.Column(scale=2, min_width=150):
                 stop_btn = gr.Button("🛑 アプリを終了する", variant="stop", size="sm")
 
@@ -135,6 +137,12 @@ def create_ui() -> gr.Blocks:
                     )
 
                 with gr.Accordion("詳細設定 (Advanced Settings)", open=False):
+                    model_select = gr.Dropdown(
+                        choices=config.available_models,
+                        value=config.model_id,
+                        label="使用モデル (Model)",
+                        info="デフォルト: Stable Audio 3 Medium",
+                    )
                     steps = gr.Slider(
                         minimum=config.min_steps,
                         maximum=config.max_steps,
@@ -188,6 +196,7 @@ def create_ui() -> gr.Blocks:
                 cfg_scale,
                 random_seed,
                 seed_input,
+                model_select,
             ],
             outputs=[audio_player, seed_output, status_text],
         )

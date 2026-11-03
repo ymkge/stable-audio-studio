@@ -8,15 +8,16 @@ MacBook Pro (Apple Silicon / MPS) 上でローカル動作する、オープン�
 ## 💻 動作要件
 - **OS**: macOS (Apple Silicon M1/M2/M3/M4)
 - **Python**: 3.10+
-- **利用モデル**: `stabilityai/stable-audio-open-1.0`
+- **標準モデル**: `stabilityai/stable-audio-3-medium` (Stable Audio 3.0 シリーズ)
+- **オプション対応**: `stabilityai/stable-audio-open-1.0`
 
 ---
 
 ## 🚀 起動方法
 
 ### 1. 初回のみ: Hugging Face モデル利用規約の同意
-本アプリが使用する `stabilityai/stable-audio-open-1.0` は利用規約への同意が必要です。
-1. [Hugging Face: stable-audio-open-1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0) をブラウザで開き、利用規約に同意（Accept）します。
+本アプリが標準使用する `stabilityai/stable-audio-3-medium` はHugging Faceの利用規約への同意が必要です。
+1. [Hugging Face: stable-audio-3-medium](https://huggingface.co/stabilityai/stable-audio-3-medium) をブラウザで開き、利用規約に同意（Accept）します。
 2. ターミナルで `huggingface-cli login` を実行してログインするか、環境変数 `export HF_TOKEN="your_token"` を設定してください。
 
 ### 2. ワンクリック起動 (推奨)

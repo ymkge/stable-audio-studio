@@ -10,3 +10,4 @@
 | [#004](004-ui-gradio.md) | UI層 (`ui/gradio_app.py`) の実装 | Phase 4 | 完了 |
 | [#005](005-app-entrypoint.md) | アプリエントリーポイント (`app.py`) の実装 | Phase 5 | 完了 |
 | [#006](006-run-script.md) | 起動スクリプト (`run_app.command`) の実装 | Phase 6 | 完了 |
+| [#010](010-switch-to-sa3-medium.md) | 初期モデルを「Stable Audio 3 Medium」に変更 | 改善 | 完了 |
