@@ -18,3 +18,14 @@
 ## 4. 完了条件 (Definition of Done)
 - [x] 設定がクラスや定数として安全に取り出せること。
 - [x] `output/` フォルダが存在しない場合に自動生成されること。
+
+## 5. 実装ウォークスルー・動作確認結果
+- **実装内容**: `core/config.py` に `AppConfig` クラスおよびシングルトン `config` を定義。
+- **検証手順**:
+  ```python
+  from core.config import config
+  print('Device:', config.device, 'Output Dir:', config.output_dir, 'Exists:', config.output_dir.exists())
+  ```
+- **実行結果**:
+  - `Device: mps`（Apple Silicon MPSデバイスを自動検出）
+  - `Output Dir: /.../output Exists: True`（`output/` ディレクトリの自動生成を確認）

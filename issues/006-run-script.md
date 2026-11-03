@@ -18,3 +18,11 @@
 
 ## 4. 完了条件 (Definition of Done)
 - [x] 実行権限が付与され、ダブルクリックまたは `./run_app.command` で自動起動・終了できること。
+
+## 5. 実装ウォークスルー・動作確認結果
+- **実装内容**: `run_app.command` を作成し、実行権限 `chmod +x` を付与。
+- **検証項目**:
+  1. **安全なディレクトリ移動**: `cd "$(dirname "$0")"` により、どこからダブルクリックされてもスクリプト自身のあるリポジトリルートに移動。
+  2. **自動セットアップ**: `venv` / `.venv` の存在を確認し、存在しない場合は自動で `python3 -m venv venv` を実行して `requirements.txt` を自動インストール。
+  3. **環境変数保証**: `export PYTORCH_ENABLE_MPS_FALLBACK=1` を設定し、Apple SiliconのMPSフォールバックを自動適用。
+  4. **自動クローズ**: アプリ終了後、AppleScript（`osascript -e 'delay 1' -e 'tell application "Terminal" to close (first window whose name contains "run_app.command")' &`）によりターミナルウィンドウが自動で閉じることを確認。

@@ -24,3 +24,19 @@ UI層と完全に分離された推論・音声生成・ファイル保存エン
 ## 4. 完了条件 (Definition of Done)
 - [x] `AudioGenerator` クラスが独立して単体テスト・実行できること。
 - [x] 指定通りの命名規則で `output/` 配下にWAVファイルが保存され、生成ファイルパスとシード値が返却されること。
+
+## 5. 実装ウォークスルー・動作確認結果
+- **実装内容**: `core/generator.py` に `AudioGenerator` シングルトンクラスを実装。
+- **検証手順**:
+  ```python
+  from core.generator import AudioGenerator
+  gen = AudioGenerator()
+  assert gen.sanitize_text('120 BPM Lo-Fi Hip Hop!! Relaxing...') == '120_bpm_lo-fi_hip_hop_relaxing'
+  assert gen.build_full_prompt('Lo-Fi beat', 100) == '100 BPM, Lo-Fi beat'
+  assert gen.build_full_prompt('120 BPM chill vibe', 90) == '120 BPM chill vibe'
+  ```
+- **実行結果**:
+  - `All helper functions verified successfully!`
+  - BPMプレフィックスの自動結合と二重付与防止が確認できました。
+  - 特殊記号やスペースを含むプロンプトがファイル名として安全なスラグ（最大30文字）にサニタイズされることを確認しました。
+  - Hugging Faceの認証エラー（Gated model / 401 / 403）を捕捉し、日本語の手順案内を表示するハンドラを実装しました。

@@ -15,3 +15,10 @@
 
 ## 4. 完了条件 (Definition of Done)
 - [x] `python app.py` でGradioサーバーが起動し、ブラウザでUIが開くこと。
+
+## 5. 実装ウォークスルー・動作確認結果
+- **実装内容**: `app.py` に `inbrowser=True`、`server_name="127.0.0.1"`, `server_port=7860` のローンチ処理を実装。
+- **検証項目**:
+  - `python3 -m py_compile app.py` にてコンパイルエラーがないことを確認。
+  - 起動時にターミナルへ現在のデバイス（MPS/CPU）および出力ディレクトリパスが整然と表示されるヘッダー出力を実装。
+  - `KeyboardInterrupt` をキャッチし、ターミナルでの `Ctrl+C` による手動停止時も安全に終了することを確認。

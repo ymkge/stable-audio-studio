@@ -50,7 +50,9 @@ stable-audio-studio/
 │   ├── __init__.py
 │   └── gradio_app.py       # Gradio Blocks UI、波形プレビュー、終了制御
 ├── output/                 # 生成されたWAVファイルの自動保存先
-├── issues/                 # 開発Issue・進捗・課題トラッカー
+├── issues/                 # 開発Issue・進捗・課題・ウォークスルー情報
+│   ├── WALKTHROUGH.md      # 全体実装・動作確認ウォークスルー
+│   └── 001〜006-*.md       # 各フェーズ別詳細Issue
 ├── app.py                  # アプリケーションのエントリーポイント
 ├── run_app.command         # ダブルクリック起動スクリプト (macOS)
 ├── requirements.txt        # 依存パッケージ定義

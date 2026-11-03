@@ -1,5 +1,7 @@
 # Issues & Progress Tracking
 
+- 📖 **[実装・動作確認全体ウォークスルーガイド](WALKTHROUGH.md)**
+
 | Issue | タイトル | フェーズ | ステータス |
 | :--- | :--- | :--- | :--- |
 | [#001](001-setup-requirements.md) | 依存ライブラリの定義と環境要件整理 | Phase 1 | 完了 |

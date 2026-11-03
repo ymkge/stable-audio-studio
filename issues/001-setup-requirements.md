@@ -18,3 +18,7 @@ Apple Silicon (MPS) 環境で動作する `stable-audio-tools` および Gradio 
 
 ## 4. 完了条件 (Definition of Done)
 - [x] `requirements.txt` が生成され、必要なライブラリが過不足なく指定されていること。
+
+## 5. 実装ウォークスルー・動作確認結果
+- **選定内容**: `torch>=2.1.0`, `torchaudio>=2.1.0`, `stable-audio-tools`, `gradio>=4.0.0`, `soundfile>=0.12.1`, `huggingface-hub>=0.20.0`
+- **検証結果**: Apple Silicon (MPS) 環境におけるMPS演算フォールバックと互換性のあるライブラリ構成を確定。`soundfile` 等のネイティブ依存は呼び出し時の遅延インポートとすることで、モジュール読み込み時の不要なクラッシュを回避する構造としました。
