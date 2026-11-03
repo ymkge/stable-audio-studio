@@ -16,7 +16,13 @@ def get_default_device() -> str:
 @dataclass
 class AppConfig:
     # Model configuration
-    model_id: str = "stabilityai/stable-audio-open-1.0"
+    model_id: str = "stabilityai/stable-audio-3-medium"
+    available_models: list[str] = field(
+        default_factory=lambda: [
+            "stabilityai/stable-audio-3-medium",
+            "stabilityai/stable-audio-open-1.0",
+        ]
+    )
     device: str = field(default_factory=get_default_device)
 
     # Audio synthesis defaults

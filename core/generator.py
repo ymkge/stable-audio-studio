@@ -34,24 +34,26 @@ class AudioGenerator:
             cls._instance = cls(app_config=app_config)
         return cls._instance
 
-    def load_model(self) -> None:
+    def load_model(self, model_id: Optional[str] = None) -> None:
         """Loads and caches the model onto the selected device (MPS/CPU)."""
-        if self.model is not None:
+        target_model_id = model_id or self.config.model_id
+        if self.model is not None and getattr(self, "current_model_id", None) == target_model_id:
             return
 
-        print(f"Loading Stable Audio model '{self.config.model_id}' onto {self.device}...")
+        print(f"Loading Stable Audio model '{target_model_id}' onto {self.device}...")
         try:
             from stable_audio_tools import get_pretrained_model
 
-            # Note: stable-audio-open-1.0 requires accepting terms on Hugging Face
-            model, model_config = get_pretrained_model(self.config.model_id)
+            # Note: stable-audio models require accepting terms on Hugging Face
+            model, model_config = get_pretrained_model(target_model_id)
             model = model.to(self.device)
             # Ensure evaluation mode
             model.eval()
 
             self.model = model
             self.model_config = model_config
-            print("Model loaded successfully.")
+            self.current_model_id = target_model_id
+            print(f"Model '{target_model_id}' loaded successfully.")
         except ImportError as e:
             raise ModelLoadError(
                 "stable-audio-tools is not installed. Please run: pip install -r requirements.txt"
@@ -60,8 +62,8 @@ class AudioGenerator:
             err_msg = str(e)
             if "gated repo" in err_msg.lower() or "401" in err_msg or "403" in err_msg:
                 raise ModelLoadError(
-                    f"Hugging Face認証エラー: モデル '{self.config.model_id}' へのアクセス権がありません。\n"
-                    "1. Hugging Face (https://huggingface.co/stabilityai/stable-audio-open-1.0) で利用規約に同意してください。\n"
+                    f"Hugging Face認証エラー: モデル '{target_model_id}' へのアクセス権がありません。\n"
+                    f"1. Hugging Face (https://huggingface.co/{target_model_id}) で利用規約に同意してください。\n"
                     "2. ターミナルで `huggingface-cli login` を実行するか、環境変数 `HF_TOKEN` を設定してください。"
                 ) from e
             raise ModelLoadError(f"モデルのロードに失敗しました: {err_msg}") from e
@@ -93,6 +95,7 @@ class AudioGenerator:
         steps: int = 100,
         cfg_scale: float = 7.0,
         seed: Optional[int] = None,
+        model_id: Optional[str] = None,
     ) -> Tuple[str, int]:
         """
         Generates audio from prompt and saves to the output directory.
@@ -100,7 +103,7 @@ class AudioGenerator:
         Returns:
             Tuple[str, int]: (output_wav_filepath, seed_used)
         """
-        self.load_model()
+        self.load_model(model_id=model_id)
 
         # Determine seed
         if seed is None or seed < 0:
