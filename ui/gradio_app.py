@@ -10,6 +10,7 @@ import gradio as gr
 
 from core.config import config
 from core.generator import generator, ModelLoadError
+from core.presets import PRESETS, StylePreset
 
 
 def open_output_folder() -> str:
@@ -90,6 +91,13 @@ def create_ui() -> gr.Blocks:
         border-radius: 8px;
         margin-bottom: 16px;
     }
+    .preset-box {
+        background-color: #fafafa;
+        border: 1px solid #ebebeb;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 14px;
+    }
     """
 
     with gr.Blocks(title="Stable Audio Studio", css=custom_css, theme=gr.themes.Soft()) as demo:
@@ -109,6 +117,21 @@ def create_ui() -> gr.Blocks:
         with gr.Row():
             # Left Column: Inputs & Controls
             with gr.Column(scale=5):
+                # Style Preset Buttons
+                preset_buttons = {}
+                with gr.Group(elem_classes=["preset-box"]):
+                    gr.Markdown("⚡ **スタイルプリセット** *(クリックでジャンル設定を一括反映)*")
+                    with gr.Row():
+                        for p in PRESETS[:3]:
+                            preset_buttons[p.id] = gr.Button(
+                                p.display_label, size="sm", variant="secondary"
+                            )
+                    with gr.Row():
+                        for p in PRESETS[3:]:
+                            preset_buttons[p.id] = gr.Button(
+                                p.display_label, size="sm", variant="secondary"
+                            )
+
                 prompt = gr.Textbox(
                     label="プロンプト (Prompt)",
                     placeholder="例: Chill Lo-Fi hip hop beat, mellow electric piano chords, soft warm bass, subtle vinyl crackle",
@@ -183,6 +206,20 @@ def create_ui() -> gr.Blocks:
             inputs=[random_seed],
             outputs=[seed_input],
         )
+
+        # Style preset button actions
+        for p in PRESETS:
+            preset_buttons[p.id].click(
+                fn=lambda preset=p: (
+                    preset.prompt,
+                    preset.negative_prompt,
+                    preset.bpm,
+                    preset.duration,
+                    f"🎨 プリセット「{preset.display_label}」を反映しました（BPM: {preset.bpm}, {preset.duration}秒）",
+                ),
+                inputs=[],
+                outputs=[prompt, negative_prompt, bpm, duration, status_text],
+            )
 
         # Generate action
         generate_btn.click(

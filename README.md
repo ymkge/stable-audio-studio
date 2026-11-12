@@ -46,14 +46,13 @@ stable-audio-studio/
 ├── core/
 │   ├── __init__.py
 │   ├── config.py           # モデルID、BPM/秒数/ステップ等の設定
+│   ├── presets.py          # 音楽スタイルプリセット定義 (Lo-Fi, Ambient, Synthwave等)
 │   └── generator.py        # モデル推論・WAV生成・サニタイズ命名・保存ロジック
 ├── ui/
 │   ├── __init__.py
 │   └── gradio_app.py       # Gradio Blocks UI、波形プレビュー、終了制御
 ├── output/                 # 生成されたWAVファイルの自動保存先
 ├── issues/                 # 開発Issue・進捗・課題・ウォークスルー情報
-│   ├── WALKTHROUGH.md      # 全体実装・動作確認ウォークスルー
-│   └── 001〜006-*.md       # 各フェーズ別詳細Issue
 ├── app.py                  # アプリケーションのエントリーポイント
 ├── run_app.command         # ダブルクリック起動スクリプト (macOS)
 ├── requirements.txt        # 依存パッケージ定義
@@ -63,6 +62,7 @@ stable-audio-studio/
 ---
 
 ## 🎨 主な機能
+- **スタイルプリセット**: Lo-Fi、Ambient、Synthwave、Cinematicなど、ワンクリックでプロンプト・BPM・秒数を自動入力
 - **BPM自動統合**: プロンプト先頭に自動で `{BPM} BPM, ` を付与
 - **DAW連携**: 生成されたWAVは `output/` フォルダへ自動保存（UI上のボタンからFinderで一発オープン）
 - **安全なアプリ終了**: 画面右上の「🛑 アプリを終了する」ボタンから確認ダイアログ付きで安全にプロセスをシャットダウン

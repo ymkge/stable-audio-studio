@@ -11,3 +11,4 @@
 | [#005](005-app-entrypoint.md) | アプリエントリーポイント (`app.py`) の実装 | Phase 5 | 完了 |
 | [#006](006-run-script.md) | 起動スクリプト (`run_app.command`) の実装 | Phase 6 | 完了 |
 | [#010](010-switch-to-sa3-medium.md) | 初期モデルを「Stable Audio 3 Medium」に変更 | 改善 | 完了 |
+| [#014](014-style-presets.md) | スタイルプリセット（ジャンル別自動設定）機能の実装 | 機能追加 | 完了 |
