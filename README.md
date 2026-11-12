@@ -47,6 +47,7 @@ stable-audio-studio/
 │   ├── __init__.py
 │   ├── config.py           # モデルID、BPM/秒数/ステップ等の設定
 │   ├── presets.py          # 音楽スタイルプリセット定義 (Lo-Fi, Ambient, Synthwave等)
+│   ├── history.py          # 生成履歴・メタデータ管理 (JSONサイドカー保存・復元)
 │   └── generator.py        # モデル推論・WAV生成・サニタイズ命名・保存ロジック
 ├── ui/
 │   ├── __init__.py
@@ -63,6 +64,7 @@ stable-audio-studio/
 
 ## 🎨 主な機能
 - **スタイルプリセット**: Lo-Fi、Ambient、Synthwave、Cinematicなど、ワンクリックでプロンプト・BPM・秒数を自動入力
+- **生成履歴ギャラリー**: 過去に生成した音源をUI上で一覧表示・ワンクリック試聴・プロンプトやシード値のフォーム復元
 - **BPM自動統合**: プロンプト先頭に自動で `{BPM} BPM, ` を付与
 - **DAW連携**: 生成されたWAVは `output/` フォルダへ自動保存（UI上のボタンからFinderで一発オープン）
 - **安全なアプリ終了**: 画面右上の「🛑 アプリを終了する」ボタンから確認ダイアログ付きで安全にプロセスをシャットダウン

@@ -9,6 +9,7 @@ import re
 import torch
 
 from core.config import config, AppConfig
+from core.history import save_metadata
 
 
 class ModelLoadError(Exception):
@@ -173,6 +174,21 @@ class AudioGenerator:
 
         sf.write(str(output_path), audio_np, samplerate=sample_rate)
         print(f"Audio saved to: {output_path}")
+
+        # Save sidecar metadata JSON
+        target_model_id = model_id or getattr(self, "current_model_id", self.config.model_id)
+        try:
+            save_metadata(
+                wav_path=output_path,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                bpm=bpm,
+                duration=duration,
+                seed=seed,
+                model_id=target_model_id,
+            )
+        except Exception as e:
+            print(f"Warning: Failed to save metadata JSON: {e}")
 
         return str(output_path), seed
 
