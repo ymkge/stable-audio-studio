@@ -11,6 +11,13 @@ import gradio as gr
 from core.config import config
 from core.generator import generator, ModelLoadError
 from core.presets import PRESETS, StylePreset
+from core.history import load_history, HistoryItem
+
+
+def get_history_choices() -> list:
+    """Returns a list of (display_label, file_path) for Gradio Dropdown."""
+    items = load_history(config.output_dir)
+    return [(item.display_label, item.file_path) for item in items]
 
 
 def open_output_folder() -> str:
@@ -32,10 +39,10 @@ def handle_generate(
     random_seed: bool,
     seed_input: int,
     model_id: str,
-) -> Tuple[Optional[str], Optional[int], str]:
-    """Generates audio and handles errors for the UI."""
+) -> Tuple[Optional[str], Optional[int], str, gr.update]:
+    """Generates audio, updates output and refreshes the history dropdown."""
     if not prompt or not prompt.strip():
-        return None, None, "⚠️ プロンプトを入力してください。"
+        return None, None, "⚠️ プロンプトを入力してください。", gr.update()
 
     actual_seed = None if random_seed else int(seed_input)
 
@@ -50,11 +57,74 @@ def handle_generate(
             seed=actual_seed,
             model_id=model_id,
         )
-        return wav_path, used_seed, f"✅ 生成完了: {os.path.basename(wav_path)}"
+        new_choices = get_history_choices()
+        return (
+            wav_path,
+            used_seed,
+            f"✅ 生成完了: {os.path.basename(wav_path)}",
+            gr.update(choices=new_choices, value=wav_path),
+        )
     except ModelLoadError as e:
-        return None, None, f"❌ モデルエラー:\n{str(e)}"
+        return None, None, f"❌ モデルエラー:\n{str(e)}", gr.update()
     except Exception as e:
-        return None, None, f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}"
+        return None, None, f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}", gr.update()
+
+
+def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional[int], str]:
+    """Loads selected historical audio into preview player."""
+    if not file_path or not os.path.exists(file_path):
+        return None, None, ""
+
+    items = {item.file_path: item for item in load_history(config.output_dir)}
+    item = items.get(file_path)
+    if not item:
+        return file_path, None, f"選択: {os.path.basename(file_path)}"
+
+    return (
+        file_path,
+        item.seed,
+        f"🎵 **履歴を読み込みました:** {item.created_at} | {item.bpm} BPM | seed: {item.seed}\n> *{item.prompt}*",
+    )
+
+
+def on_restore_settings(file_path: Optional[str]):
+    """Restores parameters from selected history item back into input form."""
+    if not file_path or not os.path.exists(file_path):
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "⚠️ 復元する音源を生成履歴から選択してください。",
+        )
+
+    items = {item.file_path: item for item in load_history(config.output_dir)}
+    item = items.get(file_path)
+    if not item:
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            "⚠️ メタデータが見つかりませんでした。",
+        )
+
+    return (
+        item.prompt,
+        item.negative_prompt,
+        item.bpm,
+        item.duration,
+        False,  # random_seed = False (enable manual seed input)
+        gr.update(value=item.seed, interactive=True),  # seed_input
+        item.model_id if item.model_id in config.available_models else config.model_id,
+        f"📋 音源「{item.filename}」の設定を入力フォームに復元しました！（Seed: {item.seed} 固定）",
+    )
 
 
 def handle_shutdown(confirm_status: str) -> gr.update:
@@ -200,6 +270,22 @@ def create_ui() -> gr.Blocks:
                 with gr.Row():
                     open_finder_btn = gr.Button("📁 保存先フォルダを開く (Finder)", variant="secondary")
 
+                # History Gallery Section
+                with gr.Accordion("📜 生成履歴 (History Gallery)", open=True):
+                    with gr.Row():
+                        history_dropdown = gr.Dropdown(
+                            label="過去の生成音源を選択 (クリックで試聴)",
+                            choices=get_history_choices(),
+                            value=None,
+                            interactive=True,
+                            scale=8,
+                        )
+                        refresh_history_btn = gr.Button("🔄 更新", size="sm", scale=2)
+
+                    restore_btn = gr.Button(
+                        "📋 選択した音源の設定を入力フォームに復元", variant="secondary"
+                    )
+
         # Dynamic interactivity: Enable seed_input only when random_seed is False
         random_seed.change(
             fn=lambda is_random: gr.update(interactive=not is_random),
@@ -235,7 +321,35 @@ def create_ui() -> gr.Blocks:
                 seed_input,
                 model_select,
             ],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+
+        # History Gallery Actions
+        history_dropdown.change(
+            fn=on_select_history,
+            inputs=[history_dropdown],
             outputs=[audio_player, seed_output, status_text],
+        )
+
+        restore_btn.click(
+            fn=on_restore_settings,
+            inputs=[history_dropdown],
+            outputs=[
+                prompt,
+                negative_prompt,
+                bpm,
+                duration,
+                random_seed,
+                seed_input,
+                model_select,
+                status_text,
+            ],
+        )
+
+        refresh_history_btn.click(
+            fn=lambda: gr.update(choices=get_history_choices()),
+            inputs=[],
+            outputs=[history_dropdown],
         )
 
         # Finder action
