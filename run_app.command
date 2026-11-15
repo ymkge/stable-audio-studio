@@ -31,10 +31,11 @@ fi
 source "$VENV_DIR/bin/activate"
 
 # Verify essential dependencies are ready
-python3 -c "import torch, gradio, stable_audio_tools" &>/dev/null
+python3 -c "import torch, gradio, stable_audio_tools, pkg_resources" &>/dev/null
 if [ $? -ne 0 ]; then
     echo "📦 必要なライブラリのセットアップを確認しています..."
     pip install --upgrade pip
+    pip install "setuptools<70"
     pip install torch torchaudio gradio soundfile huggingface-hub
     pip install --no-deps stable-audio-tools
     pip install alias-free-torch auraloss descript-audio-codec einops einops-exts ema-pytorch encodec k-diffusion laion-clap local-attention prefigure pytorch_lightning PyWavelets safetensors sentencepiece torchmetrics transformers v-diffusion-pytorch vector-quantize-pytorch webdataset

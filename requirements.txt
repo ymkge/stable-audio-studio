@@ -1,5 +1,6 @@
 torch>=2.1.0
 torchaudio>=2.1.0
+setuptools<70
 stable-audio-tools
 gradio>=4.0.0
 soundfile>=0.12.1
