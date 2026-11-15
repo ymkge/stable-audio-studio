@@ -1,5 +1,8 @@
 # 🎵 Stable Audio Studio
 
+<img width="1893" height="845" alt="スクリーンショット 2026-11-15 23 37 24" src="https://github.com/user-attachments/assets/b8f923fe-5f64-402a-874f-dac18c7f20c3" />
+
+
 MacBook Pro (Apple Silicon / MPS) 上でローカル動作する、オープンソースの音楽生成AI Web UIアプリケーションです。
 推論コア層（`core/`）とUI層（`ui/`）が疎結合に設計されており、将来のFastAPIやTypeScript (Next.js / Tauri) への移行にも対応しています。
 
