@@ -144,33 +144,34 @@ def handle_shutdown(confirm_status: str) -> gr.update:
     )
 
 
+CUSTOM_CSS = """
+#header-row {
+    align-items: center;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+}
+#shutdown-box {
+    text-align: center;
+    padding: 24px;
+    background-color: #fff1f0;
+    border: 1px solid #ffa39e;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+.preset-box {
+    background-color: #fafafa;
+    border: 1px solid #ebebeb;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+}
+"""
+
+
 def create_ui() -> gr.Blocks:
     """Builds the Gradio Blocks UI."""
-    custom_css = """
-    #header-row {
-        align-items: center;
-        border-bottom: 1px solid #e0e0e0;
-        padding-bottom: 8px;
-        margin-bottom: 16px;
-    }
-    #shutdown-box {
-        text-align: center;
-        padding: 24px;
-        background-color: #fff1f0;
-        border: 1px solid #ffa39e;
-        border-radius: 8px;
-        margin-bottom: 16px;
-    }
-    .preset-box {
-        background-color: #fafafa;
-        border: 1px solid #ebebeb;
-        border-radius: 8px;
-        padding: 10px 12px;
-        margin-bottom: 14px;
-    }
-    """
-
-    with gr.Blocks(title="Stable Audio Studio", css=custom_css, theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(title="Stable Audio Studio") as demo:
         # Shutdown confirmation hidden input
         confirm_state = gr.Textbox(visible=False, elem_id="confirm_state")
 
@@ -370,7 +371,7 @@ def create_ui() -> gr.Blocks:
             fn=handle_shutdown,
             inputs=[confirm_state],
             outputs=[shutdown_msg],
-            _js=shutdown_js,
+            js=shutdown_js,
         )
 
     return demo

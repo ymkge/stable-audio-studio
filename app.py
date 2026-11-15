@@ -1,8 +1,9 @@
 """Entrypoint for Stable Audio Studio application."""
 
 import sys
+import gradio as gr
 from core.config import config
-from ui.gradio_app import create_ui
+from ui.gradio_app import create_ui, CUSTOM_CSS
 
 
 def main():
@@ -22,6 +23,8 @@ def main():
             server_port=7860,
             show_error=True,
             quiet=False,
+            theme=gr.themes.Soft(),
+            css=CUSTOM_CSS,
         )
     except KeyboardInterrupt:
         print("\nShutdown requested by user (KeyboardInterrupt). Exiting...")
