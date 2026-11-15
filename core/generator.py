@@ -44,7 +44,13 @@ class AudioGenerator:
         print(f"Loading Stable Audio model '{target_model_id}' onto {self.device}...")
         try:
             from stable_audio_tools import get_pretrained_model
+        except ImportError as e:
+            raise ModelLoadError(
+                "stable-audio-tools がインストールされていません。\n"
+                "ターミナルで `pip install -r requirements.txt` を実行してください。"
+            ) from e
 
+        try:
             # Note: stable-audio models require accepting terms on Hugging Face
             model, model_config = get_pretrained_model(target_model_id)
             model = model.to(self.device)
@@ -55,19 +61,20 @@ class AudioGenerator:
             self.model_config = model_config
             self.current_model_id = target_model_id
             print(f"Model '{target_model_id}' loaded successfully.")
-        except ImportError as e:
-            raise ModelLoadError(
-                "stable-audio-tools is not installed. Please run: pip install -r requirements.txt"
-            ) from e
         except Exception as e:
             err_msg = str(e)
+            if "pkg_resources" in err_msg:
+                raise ModelLoadError(
+                    "Pythonパッケージ互換性エラー (pkg_resources が見つかりません)。\n"
+                    "ターミナルで `pip install \"setuptools<70\"` を実行してください。"
+                ) from e
             if "gated repo" in err_msg.lower() or "401" in err_msg or "403" in err_msg:
                 raise ModelLoadError(
                     f"Hugging Face認証エラー: モデル '{target_model_id}' へのアクセス権がありません。\n"
                     f"1. Hugging Face (https://huggingface.co/{target_model_id}) で利用規約に同意してください。\n"
                     "2. ターミナルで `huggingface-cli login` を実行するか、環境変数 `HF_TOKEN` を設定してください。"
                 ) from e
-            raise ModelLoadError(f"モデルのロードに失敗しました: {err_msg}") from e
+            raise ModelLoadError(f"モデルのロードに失敗しました ({type(e).__name__}): {err_msg}") from e
 
     @staticmethod
     def sanitize_text(text: str, max_length: int = 30) -> str:
