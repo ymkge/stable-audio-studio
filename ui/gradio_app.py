@@ -241,7 +241,7 @@ def create_ui() -> gr.Blocks:
                         minimum=config.min_steps,
                         maximum=config.max_steps,
                         value=config.default_steps,
-                        step=10,
+                        step=1,
                         label="サンプリングステップ数 (Steps)",
                     )
                     cfg_scale = gr.Slider(

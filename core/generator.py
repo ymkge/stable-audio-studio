@@ -17,8 +17,20 @@ class ModelLoadError(Exception):
     pass
 
 
+# Map Hugging Face model IDs or short names to stable-audio-3 model identifiers
+MODEL_ALIASES = {
+    "stabilityai/stable-audio-3-medium": "medium",
+    "medium": "medium",
+    "stabilityai/stable-audio-3-medium-base": "medium-base",
+    "stabilityai/stable-audio-3-small-music": "small-music",
+    "small-music": "small-music",
+    "stabilityai/stable-audio-3-small-sfx": "small-sfx",
+    "small-sfx": "small-sfx",
+}
+
+
 class AudioGenerator:
-    """Core audio generation engine wrapping stable-audio-tools."""
+    """Core audio generation engine wrapping stable-audio-3."""
 
     _instance: Optional["AudioGenerator"] = None
 
@@ -43,31 +55,21 @@ class AudioGenerator:
 
         print(f"Loading Stable Audio model '{target_model_id}' onto {self.device}...")
         try:
-            from stable_audio_tools import get_pretrained_model
+            from stable_audio_3 import StableAudioModel
         except ImportError as e:
             raise ModelLoadError(
-                "stable-audio-tools がインストールされていません。\n"
-                "ターミナルで `pip install -r requirements.txt` を実行してください。"
+                "stable-audio-3 がインストールされていません。\n"
+                "ターミナルで `pip install git+https://github.com/Stability-AI/stable-audio-3.git` を実行してください。"
             ) from e
 
         try:
-            # Note: stable-audio models require accepting terms on Hugging Face
-            model, model_config = get_pretrained_model(target_model_id)
-            model = model.to(self.device)
-            # Ensure evaluation mode
-            model.eval()
-
-            self.model = model
-            self.model_config = model_config
+            alias = MODEL_ALIASES.get(target_model_id, target_model_id)
+            self.model = StableAudioModel.from_pretrained(alias, device=self.device)
+            self.model_config = getattr(self.model, "model_config", {})
             self.current_model_id = target_model_id
-            print(f"Model '{target_model_id}' loaded successfully.")
+            print(f"Model '{target_model_id}' loaded successfully on {self.device}.")
         except Exception as e:
             err_msg = str(e)
-            if "pkg_resources" in err_msg:
-                raise ModelLoadError(
-                    "Pythonパッケージ互換性エラー (pkg_resources が見つかりません)。\n"
-                    "ターミナルで `pip install \"setuptools<70\"` を実行してください。"
-                ) from e
             if "gated repo" in err_msg.lower() or "401" in err_msg or "403" in err_msg:
                 raise ModelLoadError(
                     f"Hugging Face認証エラー: モデル '{target_model_id}' へのアクセス権がありません。\n"
@@ -100,8 +102,8 @@ class AudioGenerator:
         negative_prompt: str = "",
         bpm: int = 120,
         duration: int = 30,
-        steps: int = 100,
-        cfg_scale: float = 7.0,
+        steps: int = 8,
+        cfg_scale: float = 1.0,
         seed: Optional[int] = None,
         model_id: Optional[str] = None,
     ) -> Tuple[str, int]:
@@ -128,31 +130,17 @@ class AudioGenerator:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
-        from stable_audio_tools.inference.generation import generate_diffusion_cond
-
-        # Prepare conditioning
-        conditioning = [{"prompt": full_prompt, "seconds_start": 0, "seconds_total": duration}]
-        negative_conditioning = (
-            [{"prompt": neg_prompt, "seconds_start": 0, "seconds_total": duration}]
-            if neg_prompt
-            else None
-        )
-
         with torch.no_grad():
-            output_tensor = generate_diffusion_cond(
-                self.model,
+            output_tensor = self.model.generate(
+                prompt=full_prompt,
+                negative_prompt=neg_prompt if neg_prompt else None,
+                duration=float(duration),
                 steps=steps,
                 cfg_scale=cfg_scale,
-                conditioning=conditioning,
-                negative_conditioning=negative_conditioning,
-                sample_size=self.model_config["sample_size"],
-                sample_rate=self.model_config.get("sample_rate", self.config.sample_rate),
                 seed=seed,
-                device=self.device,
             )
 
         # Format tensor to audio (channels, samples)
-        # Rearrange and squeeze if necessary
         output_tensor = output_tensor.to(torch.float32).cpu()
         if output_tensor.dim() == 3:
             # Shape is (batch, channels, samples) -> select batch 0
@@ -179,26 +167,23 @@ class AudioGenerator:
         if audio_np.ndim == 2:
             audio_np = audio_np.T
 
-        sf.write(str(output_path), audio_np, samplerate=sample_rate)
-        print(f"Audio saved to: {output_path}")
+        sf.write(str(output_path), audio_np, sample_rate)
+        print(f"Saved audio to: {output_path}")
 
-        # Save sidecar metadata JSON
-        target_model_id = model_id or getattr(self, "current_model_id", self.config.model_id)
-        try:
-            save_metadata(
-                wav_path=output_path,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                bpm=bpm,
-                duration=duration,
-                seed=seed,
-                model_id=target_model_id,
-            )
-        except Exception as e:
-            print(f"Warning: Failed to save metadata JSON: {e}")
+        # Save metadata sidecar JSON
+        target_model_id = model_id or self.config.model_id
+        save_metadata(
+            wav_path=output_path,
+            prompt=prompt,
+            negative_prompt=neg_prompt,
+            bpm=bpm,
+            duration=duration,
+            seed=seed,
+            model_id=target_model_id,
+        )
 
         return str(output_path), seed
 
 
-# Global helper instance
+# Module-level singleton instance for convenience
 generator = AudioGenerator.get_instance()
