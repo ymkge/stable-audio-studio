@@ -35,13 +35,13 @@ class AppConfig:
     min_duration: int = 5
     max_duration: int = 180
 
-    default_steps: int = 100
-    min_steps: int = 10
-    max_steps: int = 250
+    default_steps: int = 8
+    min_steps: int = 4
+    max_steps: int = 32
 
-    default_cfg_scale: float = 7.0
-    min_cfg_scale: float = 1.0
-    max_cfg_scale: float = 15.0
+    default_cfg_scale: float = 1.0
+    min_cfg_scale: float = 0.5
+    max_cfg_scale: float = 5.0
 
     # Paths
     base_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent)
