@@ -130,6 +130,10 @@ class AudioGenerator:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
+        # Use model's configured sample_size (defaults to 16777216 for SA3 Medium = ~380s)
+        # to ensure generation beyond 120s is not clamped by default sample_size.
+        model_sample_size = self.model_config.get("sample_size", 16777216)
+
         with torch.no_grad():
             output_tensor = self.model.generate(
                 prompt=full_prompt,
@@ -138,6 +142,7 @@ class AudioGenerator:
                 steps=steps,
                 cfg_scale=cfg_scale,
                 seed=seed,
+                sample_size=model_sample_size,
             )
 
         # Format tensor to audio (channels, samples)

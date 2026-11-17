@@ -33,7 +33,7 @@ class AppConfig:
 
     default_duration: int = 30
     min_duration: int = 5
-    max_duration: int = 180
+    max_duration: int = 360
 
     default_steps: int = 8
     min_steps: int = 4

@@ -228,6 +228,7 @@ def create_ui() -> gr.Blocks:
                         value=config.default_duration,
                         step=5,
                         label="生成秒数 (秒)",
+                        info="5秒〜360秒（最大6分）",
                     )
 
                 with gr.Accordion("詳細設定 (Advanced Settings)", open=False):
