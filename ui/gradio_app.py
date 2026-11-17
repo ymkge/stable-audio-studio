@@ -166,6 +166,12 @@ CUSTOM_CSS = """
     padding: 10px 12px;
     margin-bottom: 14px;
 }
+.prompt-header-row {
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 8px;
+    margin-bottom: -4px;
+}
 """
 
 
@@ -202,6 +208,16 @@ def create_ui() -> gr.Blocks:
                             preset_buttons[p.id] = gr.Button(
                                 p.display_label, size="sm", variant="secondary"
                             )
+
+                with gr.Row(elem_classes=["prompt-header-row"]):
+                    gr.Markdown("📝 **プロンプト入力**")
+                    clear_prompt_btn = gr.Button(
+                        "🧹 プロンプトをクリア",
+                        size="sm",
+                        variant="secondary",
+                        scale=0,
+                        min_width=140,
+                    )
 
                 prompt = gr.Textbox(
                     label="プロンプト (Prompt)",
@@ -308,6 +324,13 @@ def create_ui() -> gr.Blocks:
                 inputs=[],
                 outputs=[prompt, negative_prompt, bpm, duration, status_text],
             )
+
+        # Clear prompt action
+        clear_prompt_btn.click(
+            fn=lambda: ("", "", "🧹 プロンプトとネガティブプロンプトをクリアしました。"),
+            inputs=[],
+            outputs=[prompt, negative_prompt, status_text],
+        )
 
         # Generate action
         generate_btn.click(
