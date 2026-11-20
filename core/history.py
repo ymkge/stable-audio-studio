@@ -24,10 +24,13 @@ class HistoryItem:
     def display_label(self) -> str:
         """Formatted human-readable label for UI selection."""
         # e.g., "11/12 23:45 | 120 BPM (30s) | Chill Lo-Fi beat... [s:42]"
+        # or    "11/12 23:45 | SFX (45s) | Gentle soothing rain... [s:42]"
         short_prompt = self.prompt.strip()
         if len(short_prompt) > 35:
             short_prompt = short_prompt[:32] + "..."
-        return f"{self.created_at} | {self.bpm} BPM ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
+        if self.bpm and self.bpm > 0 and "sfx" not in self.model_id.lower():
+            return f"{self.created_at} | {self.bpm} BPM ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
+        return f"{self.created_at} | SFX ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
 
 
 def save_metadata(
@@ -63,18 +66,32 @@ def save_metadata(
 
 def parse_from_filename(wav_path: Path) -> HistoryItem:
     """Fallback parser when sidecar JSON metadata is missing."""
-    # Pattern: YYYYMMDD_HHMMSS_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav
+    # Music: YYYYMMDD_HHMMSS_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav
+    # SFX:   YYYYMMDD_HHMMSS_sfx_{duration}s_{prompt_summary}_s{seed}.wav
     filename = wav_path.name
-    pattern = r"^(\d{8})_(\d{4,6})_(\d+)bpm_(\d+)s_(.*)_s(\d+)\.wav$"
-    match = re.match(pattern, filename)
+    pattern_music = r"^(\d{8})_(\d{4,6})_(\d+)bpm_(\d+)s_(.*)_s(\d+)\.wav$"
+    pattern_sfx = r"^(\d{8})_(\d{4,6})_sfx_(\d+)s_(.*)_s(\d+)\.wav$"
+
+    match_music = re.match(pattern_music, filename)
+    match_sfx = re.match(pattern_sfx, filename)
 
     created_at = datetime.fromtimestamp(wav_path.stat().st_mtime).strftime("%Y/%m/%d %H:%M")
-    if match:
-        date_str, time_str, bpm_str, dur_str, prompt_slug, seed_str = match.groups()
+    model_id = "stabilityai/stable-audio-3-medium"
+    negative_prompt = ""
+
+    if match_music:
+        date_str, time_str, bpm_str, dur_str, prompt_slug, seed_str = match_music.groups()
         bpm = int(bpm_str)
         duration = int(dur_str)
         seed = int(seed_str)
         prompt = prompt_slug.replace("_", " ")
+    elif match_sfx:
+        date_str, time_str, dur_str, prompt_slug, seed_str = match_sfx.groups()
+        bpm = 0
+        duration = int(dur_str)
+        seed = int(seed_str)
+        prompt = prompt_slug.replace("_", " ")
+        model_id = "stabilityai/stable-audio-3-small-sfx"
     else:
         bpm = 120
         duration = 30
@@ -88,9 +105,9 @@ def parse_from_filename(wav_path: Path) -> HistoryItem:
         bpm=bpm,
         duration=duration,
         prompt=prompt,
-        negative_prompt="",
+        negative_prompt=negative_prompt,
         seed=seed,
-        model_id="stabilityai/stable-audio-3-medium",
+        model_id=model_id,
     )
 
 
