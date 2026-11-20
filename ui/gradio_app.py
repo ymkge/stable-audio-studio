@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 import gradio as gr
 
 from core.config import config
-from core.generator import generator, ModelLoadError
+from core.generator import generator, ModelLoadError, is_sfx_model
 from core.presets import PRESETS, SFX_PRESETS, StylePreset
 from core.history import load_history, HistoryItem
 
@@ -45,12 +45,13 @@ def handle_generate(
         return None, None, "⚠️ プロンプトを入力してください。", gr.update()
 
     actual_seed = None if random_seed else int(seed_input)
+    safe_bpm = int(bpm) if bpm is not None else 0
 
     try:
         wav_path, used_seed = generator.generate(
             prompt=prompt,
             negative_prompt=negative_prompt,
-            bpm=int(bpm),
+            bpm=safe_bpm,
             duration=int(duration),
             steps=int(steps),
             cfg_scale=float(cfg_scale),
@@ -80,10 +81,14 @@ def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional
     if not item:
         return file_path, None, f"選択: {os.path.basename(file_path)}"
 
+    is_sfx = (item.bpm <= 0) or is_sfx_model(item.model_id)
+    bpm_info = "SFX (BPMなし)" if is_sfx else f"{item.bpm} BPM"
+    icon = "🍃" if is_sfx else "🎵"
+
     return (
         file_path,
         item.seed,
-        f"🎵 **履歴を読み込みました:** {item.created_at} | {item.bpm} BPM | seed: {item.seed}\n> *{item.prompt}*",
+        f"{icon} **履歴を読み込みました:** {item.created_at} | {bpm_info} | seed: {item.seed}\n> *{item.prompt}*",
     )
 
 
@@ -91,6 +96,7 @@ def on_restore_settings(file_path: Optional[str]):
     """Restores parameters from selected history item back into input form."""
     if not file_path or not os.path.exists(file_path):
         return (
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -112,18 +118,33 @@ def on_restore_settings(file_path: Optional[str]):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
             "⚠️ メタデータが見つかりませんでした。",
         )
+
+    is_sfx = (item.bpm <= 0) or is_sfx_model(item.model_id)
+    if is_sfx:
+        bpm_update = gr.update(value=config.default_bpm, visible=False)
+        btn_update = gr.update(value="🍃 効果音を生成する")
+        model_val = item.model_id if item.model_id in config.available_models else config.sfx_model_id
+        msg = f"📋 効果音「{item.filename}」の設定を入力フォームに復元しました！（Seed: {item.seed} 固定）"
+    else:
+        bpm_val = item.bpm if item.bpm >= config.min_bpm else config.default_bpm
+        bpm_update = gr.update(value=bpm_val, visible=True)
+        btn_update = gr.update(value="🎼 音楽を生成する")
+        model_val = item.model_id if item.model_id in config.available_models else config.model_id
+        msg = f"📋 音楽「{item.filename}」の設定を入力フォームに復元しました！（Seed: {item.seed} 固定）"
 
     return (
         item.prompt,
         item.negative_prompt,
-        item.bpm,
+        bpm_update,
         item.duration,
         False,  # random_seed = False (enable manual seed input)
         gr.update(value=item.seed, interactive=True),  # seed_input
-        item.model_id if item.model_id in config.available_models else config.model_id,
-        f"📋 音源「{item.filename}」の設定を入力フォームに復元しました！（Seed: {item.seed} 固定）",
+        model_val,
+        btn_update,
+        msg,
     )
 
 
@@ -324,19 +345,30 @@ def create_ui() -> gr.Blocks:
             outputs=[seed_input],
         )
 
+        # Model selection dynamic update (Show/Hide BPM slider and update button text)
+        model_select.change(
+            fn=lambda m: (
+                gr.update(value=config.default_bpm, visible=False) if is_sfx_model(m) else gr.update(visible=True),
+                gr.update(value="🍃 効果音を生成する" if is_sfx_model(m) else "🎼 音楽を生成する"),
+            ),
+            inputs=[model_select],
+            outputs=[bpm, generate_btn],
+        )
+
         # Style preset button actions (Music)
         for p in PRESETS:
             preset_buttons[p.id].click(
                 fn=lambda preset=p: (
                     preset.prompt,
                     preset.negative_prompt,
-                    preset.bpm,
+                    gr.update(value=preset.bpm, visible=True),
                     preset.duration,
                     config.model_id,
+                    gr.update(value="🎼 音楽を生成する"),
                     f"🎨 音楽プリセット「{preset.display_label}」を反映しました（BPM: {preset.bpm}, {preset.duration}秒）",
                 ),
                 inputs=[],
-                outputs=[prompt, negative_prompt, bpm, duration, model_select, status_text],
+                outputs=[prompt, negative_prompt, bpm, duration, model_select, generate_btn, status_text],
             )
 
         # Style preset button actions (SFX / Ambience)
@@ -345,13 +377,14 @@ def create_ui() -> gr.Blocks:
                 fn=lambda preset=p: (
                     preset.prompt,
                     preset.negative_prompt,
-                    preset.bpm,
+                    gr.update(value=config.default_bpm, visible=False),
                     preset.duration,
                     config.sfx_model_id,
+                    gr.update(value="🍃 効果音を生成する"),
                     f"🍃 効果音プリセット「{preset.display_label}」を反映しました（モデル: Small SFX 自動選択, BPMオフ）",
                 ),
                 inputs=[],
-                outputs=[prompt, negative_prompt, bpm, duration, model_select, status_text],
+                outputs=[prompt, negative_prompt, bpm, duration, model_select, generate_btn, status_text],
             )
 
         # Clear prompt action
@@ -396,6 +429,7 @@ def create_ui() -> gr.Blocks:
                 random_seed,
                 seed_input,
                 model_select,
+                generate_btn,
                 status_text,
             ],
         )
