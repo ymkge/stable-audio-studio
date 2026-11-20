@@ -36,6 +36,24 @@ class AppConfig:
     default_duration: int = 30
     min_duration: int = 5
     max_duration: int = 360
+    sfx_max_duration: int = 120
+    model_max_durations: dict[str, int] = field(
+        default_factory=lambda: {
+            "stabilityai/stable-audio-3-medium": 360,
+            "stabilityai/stable-audio-3-small-sfx": 120,
+            "stabilityai/stable-audio-open-1.0": 47,
+        }
+    )
+
+    def get_max_duration(self, model_id: str) -> int:
+        """Returns the maximum allowed duration (in seconds) for the specified model."""
+        if not model_id:
+            return self.max_duration
+        if model_id in self.model_max_durations:
+            return self.model_max_durations[model_id]
+        if "sfx" in model_id.lower():
+            return self.sfx_max_duration
+        return self.max_duration
 
     default_steps: int = 8
     min_steps: int = 4
