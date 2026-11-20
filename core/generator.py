@@ -144,9 +144,18 @@ class AudioGenerator:
         full_prompt = self.build_full_prompt(prompt, bpm, model_id=target_model_id)
         neg_prompt = negative_prompt.strip()
 
+        # Clamp duration to model's maximum supported duration
+        max_allowed_duration = self.config.get_max_duration(target_model_id)
+        effective_duration = int(duration)
+        if effective_duration > max_allowed_duration:
+            print(
+                f"Notice: Requested duration {effective_duration}s exceeds model maximum {max_allowed_duration}s for '{target_model_id}'. Clamping to {max_allowed_duration}s."
+            )
+            effective_duration = max_allowed_duration
+
         is_sfx = is_sfx_model(target_model_id) or (bpm <= 0)
         mode_label = "SFX/Ambience" if is_sfx else f"Music (BPM={bpm})"
-        print(f"Generating audio [{mode_label}]: Prompt='{full_prompt}', Neg='{neg_prompt}', Duration={duration}s, Seed={seed}")
+        print(f"Generating audio [{mode_label}]: Prompt='{full_prompt}', Neg='{neg_prompt}', Duration={effective_duration}s, Seed={seed}")
 
         # Set seeds for reproducibility
         torch.manual_seed(seed)
@@ -161,7 +170,7 @@ class AudioGenerator:
             output_tensor = self.model.generate(
                 prompt=full_prompt,
                 negative_prompt=neg_prompt if neg_prompt else None,
-                duration=float(duration),
+                duration=float(effective_duration),
                 steps=steps,
                 cfg_scale=cfg_scale,
                 seed=seed,
@@ -183,9 +192,9 @@ class AudioGenerator:
         now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         prompt_summary = self.sanitize_text(prompt)
         if is_sfx:
-            filename = f"{now_str}_sfx_{duration}s_{prompt_summary}_s{seed}.wav"
+            filename = f"{now_str}_sfx_{effective_duration}s_{prompt_summary}_s{seed}.wav"
         else:
-            filename = f"{now_str}_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav"
+            filename = f"{now_str}_{bpm}bpm_{effective_duration}s_{prompt_summary}_s{seed}.wav"
         output_path = self.config.output_dir / filename
 
         sample_rate = self.model_config.get("sample_rate", self.config.sample_rate)
@@ -210,7 +219,7 @@ class AudioGenerator:
             prompt=prompt,
             negative_prompt=neg_prompt,
             bpm=effective_bpm,
-            duration=duration,
+            duration=effective_duration,
             seed=seed,
             model_id=target_model_id,
         )

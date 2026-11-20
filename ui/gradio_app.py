@@ -29,6 +29,18 @@ def open_output_folder() -> str:
         return f"フォルダを開くのに失敗しました: {e}"
 
 
+def get_duration_slider_update(model_id: str, current_duration: int) -> gr.update:
+    """Returns dynamic update for the duration slider based on model limits."""
+    max_sec = config.get_max_duration(model_id)
+    is_sfx = is_sfx_model(model_id)
+    if is_sfx:
+        info = f"5秒〜{max_sec}秒（効果音モデル上限: 最大{max_sec // 60}分）"
+    else:
+        info = f"5秒〜{max_sec}秒（最大{max_sec // 60}分）"
+    safe_duration = min(int(current_duration or config.default_duration), max_sec)
+    return gr.update(maximum=max_sec, value=safe_duration, info=info)
+
+
 def handle_generate(
     prompt: str,
     negative_prompt: str,
@@ -127,19 +139,29 @@ def on_restore_settings(file_path: Optional[str]):
         bpm_update = gr.update(value=config.default_bpm, visible=False)
         btn_update = gr.update(value="🍃 効果音を生成する")
         model_val = item.model_id if item.model_id in config.available_models else config.sfx_model_id
+        dur_update = gr.update(
+            maximum=config.sfx_max_duration,
+            value=min(item.duration, config.sfx_max_duration),
+            info="5秒〜120秒（効果音モデル上限: 最大2分）",
+        )
         msg = f"📋 効果音「{item.filename}」の設定を入力フォームに復元しました！（Seed: {item.seed} 固定）"
     else:
         bpm_val = item.bpm if item.bpm >= config.min_bpm else config.default_bpm
         bpm_update = gr.update(value=bpm_val, visible=True)
         btn_update = gr.update(value="🎼 音楽を生成する")
         model_val = item.model_id if item.model_id in config.available_models else config.model_id
+        dur_update = gr.update(
+            maximum=config.max_duration,
+            value=min(item.duration, config.max_duration),
+            info="5秒〜360秒（最大6分）",
+        )
         msg = f"📋 音楽「{item.filename}」の設定を入力フォームに復元しました！（Seed: {item.seed} 固定）"
 
     return (
         item.prompt,
         item.negative_prompt,
         bpm_update,
-        item.duration,
+        dur_update,
         False,  # random_seed = False (enable manual seed input)
         gr.update(value=item.seed, interactive=True),  # seed_input
         model_val,
@@ -345,14 +367,15 @@ def create_ui() -> gr.Blocks:
             outputs=[seed_input],
         )
 
-        # Model selection dynamic update (Show/Hide BPM slider and update button text)
+        # Model selection dynamic update (Show/Hide BPM slider, update duration limits and button text)
         model_select.change(
-            fn=lambda m: (
+            fn=lambda m, cur_dur: (
                 gr.update(value=config.default_bpm, visible=False) if is_sfx_model(m) else gr.update(visible=True),
                 gr.update(value="🍃 効果音を生成する" if is_sfx_model(m) else "🎼 音楽を生成する"),
+                get_duration_slider_update(m, cur_dur),
             ),
-            inputs=[model_select],
-            outputs=[bpm, generate_btn],
+            inputs=[model_select, duration],
+            outputs=[bpm, generate_btn, duration],
         )
 
         # Style preset button actions (Music)
@@ -362,7 +385,7 @@ def create_ui() -> gr.Blocks:
                     preset.prompt,
                     preset.negative_prompt,
                     gr.update(value=preset.bpm, visible=True),
-                    preset.duration,
+                    gr.update(maximum=config.max_duration, value=preset.duration, info="5秒〜360秒（最大6分）"),
                     config.model_id,
                     gr.update(value="🎼 音楽を生成する"),
                     f"🎨 音楽プリセット「{preset.display_label}」を反映しました（BPM: {preset.bpm}, {preset.duration}秒）",
@@ -378,7 +401,11 @@ def create_ui() -> gr.Blocks:
                     preset.prompt,
                     preset.negative_prompt,
                     gr.update(value=config.default_bpm, visible=False),
-                    preset.duration,
+                    gr.update(
+                        maximum=config.sfx_max_duration,
+                        value=min(preset.duration, config.sfx_max_duration),
+                        info="5秒〜120秒（効果音モデル上限: 最大2分）",
+                    ),
                     config.sfx_model_id,
                     gr.update(value="🍃 効果音を生成する"),
                     f"🍃 効果音プリセット「{preset.display_label}」を反映しました（モデル: Small SFX 自動選択, BPMオフ）",
