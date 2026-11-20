@@ -10,7 +10,7 @@ import gradio as gr
 
 from core.config import config
 from core.generator import generator, ModelLoadError
-from core.presets import PRESETS, StylePreset
+from core.presets import PRESETS, SFX_PRESETS, StylePreset
 from core.history import load_history, HistoryItem
 
 
@@ -194,20 +194,33 @@ def create_ui() -> gr.Blocks:
         with gr.Row():
             # Left Column: Inputs & Controls
             with gr.Column(scale=5):
-                # Style Preset Buttons
+                # Style Preset Buttons (Music & SFX/Ambience)
                 preset_buttons = {}
                 with gr.Group(elem_classes=["preset-box"]):
-                    gr.Markdown("⚡ **スタイルプリセット** *(クリックでジャンル設定を一括反映)*")
-                    with gr.Row():
-                        for p in PRESETS[:3]:
-                            preset_buttons[p.id] = gr.Button(
-                                p.display_label, size="sm", variant="secondary"
-                            )
-                    with gr.Row():
-                        for p in PRESETS[3:]:
-                            preset_buttons[p.id] = gr.Button(
-                                p.display_label, size="sm", variant="secondary"
-                            )
+                    gr.Markdown("⚡ **スタイルプリセット** *(クリックでジャンル・モデル設定を一括反映)*")
+                    with gr.Tabs():
+                        with gr.Tab("🎵 音楽 (Music)"):
+                            with gr.Row():
+                                for p in PRESETS[:3]:
+                                    preset_buttons[p.id] = gr.Button(
+                                        p.display_label, size="sm", variant="secondary"
+                                    )
+                            with gr.Row():
+                                for p in PRESETS[3:]:
+                                    preset_buttons[p.id] = gr.Button(
+                                        p.display_label, size="sm", variant="secondary"
+                                    )
+                        with gr.Tab("🍃 環境音・効果音 (Sound Effects)"):
+                            with gr.Row():
+                                for p in SFX_PRESETS[:3]:
+                                    preset_buttons[p.id] = gr.Button(
+                                        p.display_label, size="sm", variant="secondary"
+                                    )
+                            with gr.Row():
+                                for p in SFX_PRESETS[3:]:
+                                    preset_buttons[p.id] = gr.Button(
+                                        p.display_label, size="sm", variant="secondary"
+                                    )
 
                 with gr.Row(elem_classes=["prompt-header-row"]):
                     gr.Markdown("📝 **プロンプト入力**")
@@ -252,7 +265,7 @@ def create_ui() -> gr.Blocks:
                         choices=config.available_models,
                         value=config.model_id,
                         label="使用モデル (Model)",
-                        info="デフォルト: Stable Audio 3 Medium",
+                        info="SA3 Medium (音楽向け) / Small SFX (効果音・環境音向け)",
                     )
                     steps = gr.Slider(
                         minimum=config.min_steps,
@@ -311,7 +324,7 @@ def create_ui() -> gr.Blocks:
             outputs=[seed_input],
         )
 
-        # Style preset button actions
+        # Style preset button actions (Music)
         for p in PRESETS:
             preset_buttons[p.id].click(
                 fn=lambda preset=p: (
@@ -319,10 +332,26 @@ def create_ui() -> gr.Blocks:
                     preset.negative_prompt,
                     preset.bpm,
                     preset.duration,
-                    f"🎨 プリセット「{preset.display_label}」を反映しました（BPM: {preset.bpm}, {preset.duration}秒）",
+                    config.model_id,
+                    f"🎨 音楽プリセット「{preset.display_label}」を反映しました（BPM: {preset.bpm}, {preset.duration}秒）",
                 ),
                 inputs=[],
-                outputs=[prompt, negative_prompt, bpm, duration, status_text],
+                outputs=[prompt, negative_prompt, bpm, duration, model_select, status_text],
+            )
+
+        # Style preset button actions (SFX / Ambience)
+        for p in SFX_PRESETS:
+            preset_buttons[p.id].click(
+                fn=lambda preset=p: (
+                    preset.prompt,
+                    preset.negative_prompt,
+                    preset.bpm,
+                    preset.duration,
+                    config.sfx_model_id,
+                    f"🍃 効果音プリセット「{preset.display_label}」を反映しました（モデル: Small SFX 自動選択, BPMオフ）",
+                ),
+                inputs=[],
+                outputs=[prompt, negative_prompt, bpm, duration, model_select, status_text],
             )
 
         # Clear prompt action

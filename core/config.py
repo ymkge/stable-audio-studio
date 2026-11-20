@@ -17,9 +17,11 @@ def get_default_device() -> str:
 class AppConfig:
     # Model configuration
     model_id: str = "stabilityai/stable-audio-3-medium"
+    sfx_model_id: str = "stabilityai/stable-audio-3-small-sfx"
     available_models: list[str] = field(
         default_factory=lambda: [
             "stabilityai/stable-audio-3-medium",
+            "stabilityai/stable-audio-3-small-sfx",
             "stabilityai/stable-audio-open-1.0",
         ]
     )

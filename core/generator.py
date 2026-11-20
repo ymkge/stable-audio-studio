@@ -29,6 +29,14 @@ MODEL_ALIASES = {
 }
 
 
+def is_sfx_model(model_id: str) -> bool:
+    """Checks whether the specified model is dedicated to sound effects / ambience."""
+    if not model_id:
+        return False
+    alias = MODEL_ALIASES.get(model_id, model_id).lower()
+    return "sfx" in alias or "sfx" in model_id.lower()
+
+
 class AudioGenerator:
     """Core audio generation engine wrapping stable-audio-3."""
 
@@ -52,6 +60,15 @@ class AudioGenerator:
         target_model_id = model_id or self.config.model_id
         if self.model is not None and getattr(self, "current_model_id", None) == target_model_id:
             return
+
+        # Release previous model if switching models to prevent memory leaks
+        if self.model is not None:
+            del self.model
+            self.model = None
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            elif torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
         print(f"Loading Stable Audio model '{target_model_id}' onto {self.device}...")
         try:
@@ -88,9 +105,12 @@ class AudioGenerator:
             cleaned = "audio"
         return cleaned[:max_length]
 
-    def build_full_prompt(self, prompt: str, bpm: int) -> str:
-        """Prepends BPM to prompt if not already present."""
+    def build_full_prompt(self, prompt: str, bpm: int, model_id: Optional[str] = None) -> str:
+        """Prepends BPM to prompt if applicable for music models."""
         clean_prompt = prompt.strip()
+        # For SFX / ambience models or non-positive BPM, do not prepend BPM
+        if (model_id and is_sfx_model(model_id)) or bpm <= 0:
+            return clean_prompt
         # Avoid duplicate BPM prefix if user already typed it
         if re.search(r"^\d+\s*bpm", clean_prompt, flags=re.IGNORECASE):
             return clean_prompt
@@ -113,17 +133,20 @@ class AudioGenerator:
         Returns:
             Tuple[str, int]: (output_wav_filepath, seed_used)
         """
-        self.load_model(model_id=model_id)
+        target_model_id = model_id or self.config.model_id
+        self.load_model(model_id=target_model_id)
 
         # Determine seed
         if seed is None or seed < 0:
             seed = random.randint(0, 2**32 - 1)
 
-        # Build prompt
-        full_prompt = self.build_full_prompt(prompt, bpm)
+        # Build prompt (skip BPM prefix for SFX / Ambience models)
+        full_prompt = self.build_full_prompt(prompt, bpm, model_id=target_model_id)
         neg_prompt = negative_prompt.strip()
 
-        print(f"Generating audio: Prompt='{full_prompt}', Neg='{neg_prompt}', BPM={bpm}, Duration={duration}s, Seed={seed}")
+        is_sfx = is_sfx_model(target_model_id) or (bpm <= 0)
+        mode_label = "SFX/Ambience" if is_sfx else f"Music (BPM={bpm})"
+        print(f"Generating audio [{mode_label}]: Prompt='{full_prompt}', Neg='{neg_prompt}', Duration={duration}s, Seed={seed}")
 
         # Set seeds for reproducibility
         torch.manual_seed(seed)
@@ -154,10 +177,15 @@ class AudioGenerator:
         # Clamp between -1.0 and 1.0 to prevent clipping
         output_tensor = torch.clamp(output_tensor, -1.0, 1.0)
 
-        # File naming: YYYYMMDD_HHMMSS_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav
+        # File naming:
+        # Music: YYYYMMDD_HHMMSS_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav
+        # SFX:   YYYYMMDD_HHMMSS_sfx_{duration}s_{prompt_summary}_s{seed}.wav
         now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         prompt_summary = self.sanitize_text(prompt)
-        filename = f"{now_str}_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav"
+        if is_sfx:
+            filename = f"{now_str}_sfx_{duration}s_{prompt_summary}_s{seed}.wav"
+        else:
+            filename = f"{now_str}_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav"
         output_path = self.config.output_dir / filename
 
         sample_rate = self.model_config.get("sample_rate", self.config.sample_rate)
@@ -176,12 +204,12 @@ class AudioGenerator:
         print(f"Saved audio to: {output_path}")
 
         # Save metadata sidecar JSON
-        target_model_id = model_id or self.config.model_id
+        effective_bpm = 0 if is_sfx else bpm
         save_metadata(
             wav_path=output_path,
             prompt=prompt,
             negative_prompt=neg_prompt,
-            bpm=bpm,
+            bpm=effective_bpm,
             duration=duration,
             seed=seed,
             model_id=target_model_id,
