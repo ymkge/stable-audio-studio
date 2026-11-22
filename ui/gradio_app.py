@@ -41,6 +41,28 @@ def get_duration_slider_update(model_id: str, current_duration: int) -> gr.updat
     return gr.update(maximum=max_sec, value=safe_duration, info=info)
 
 
+def get_mode_sync_updates(target_model_id: str, current_duration: int):
+    """Generates unified updates across UI components when model/mode changes."""
+    is_sfx = is_sfx_model(target_model_id)
+    dur_update = get_duration_slider_update(target_model_id, current_duration)
+    if is_sfx:
+        bpm_update = gr.update(value=config.default_bpm, visible=False)
+        btn_update = gr.update(value="🍃 効果音を生成する (Small SFXモデル)")
+        msg = "🍃 効果音・環境音モードに切り替えました（モデル: Small SFX 自動選択, BPMオフ）"
+    else:
+        bpm_update = gr.update(visible=True)
+        btn_update = gr.update(value="🎼 音楽を生成する (Mediumモデル)")
+        msg = "🎵 音楽モードに切り替えました（モデル: Medium 自動選択）"
+    return (
+        target_model_id,  # for mode_radio
+        target_model_id,  # for model_select
+        bpm_update,
+        dur_update,
+        btn_update,
+        msg,
+    )
+
+
 def handle_generate(
     prompt: str,
     negative_prompt: str,
@@ -116,6 +138,7 @@ def on_restore_settings(file_path: Optional[str]):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
             "⚠️ 復元する音源を生成履歴から選択してください。",
         )
 
@@ -131,13 +154,14 @@ def on_restore_settings(file_path: Optional[str]):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
             "⚠️ メタデータが見つかりませんでした。",
         )
 
     is_sfx = (item.bpm <= 0) or is_sfx_model(item.model_id)
     if is_sfx:
         bpm_update = gr.update(value=config.default_bpm, visible=False)
-        btn_update = gr.update(value="🍃 効果音を生成する")
+        btn_update = gr.update(value="🍃 効果音を生成する (Small SFXモデル)")
         model_val = item.model_id if item.model_id in config.available_models else config.sfx_model_id
         dur_update = gr.update(
             maximum=config.sfx_max_duration,
@@ -148,7 +172,7 @@ def on_restore_settings(file_path: Optional[str]):
     else:
         bpm_val = item.bpm if item.bpm >= config.min_bpm else config.default_bpm
         bpm_update = gr.update(value=bpm_val, visible=True)
-        btn_update = gr.update(value="🎼 音楽を生成する")
+        btn_update = gr.update(value="🎼 音楽を生成する (Mediumモデル)")
         model_val = item.model_id if item.model_id in config.available_models else config.model_id
         dur_update = gr.update(
             maximum=config.max_duration,
@@ -164,7 +188,8 @@ def on_restore_settings(file_path: Optional[str]):
         dur_update,
         False,  # random_seed = False (enable manual seed input)
         gr.update(value=item.seed, interactive=True),  # seed_input
-        model_val,
+        model_val,  # mode_radio
+        model_val,  # model_select
         btn_update,
         msg,
     )
@@ -209,6 +234,16 @@ CUSTOM_CSS = """
     padding: 10px 12px;
     margin-bottom: 14px;
 }
+.mode-box {
+    background: linear-gradient(135deg, #f0f5ff 0%, #f6ffed 100%);
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+}
+.mode-box label {
+    font-weight: 600;
+}
 .prompt-header-row {
     align-items: center;
     justify-content: space-between;
@@ -227,7 +262,7 @@ def create_ui() -> gr.Blocks:
         # Header Row
         with gr.Row(elem_id="header-row"):
             with gr.Column(scale=8):
-                gr.Markdown("# 🎵 Stable Audio Studio\n*Powered by Stable Audio 3 Medium (Apple Silicon / MPS)*")
+                gr.Markdown("# 🎵 Stable Audio Studio\n*高品質AI音楽 & 環境音・効果音生成スタジオ (Apple Silicon / MPS)*")
             with gr.Column(scale=2, min_width=150):
                 stop_btn = gr.Button("🛑 アプリを終了する", variant="stop", size="sm")
 
@@ -241,8 +276,8 @@ def create_ui() -> gr.Blocks:
                 preset_buttons = {}
                 with gr.Group(elem_classes=["preset-box"]):
                     gr.Markdown("⚡ **スタイルプリセット** *(クリックでジャンル・モデル設定を一括反映)*")
-                    with gr.Tabs():
-                        with gr.Tab("🎵 音楽 (Music)"):
+                    with gr.Tabs() as preset_tabs:
+                        with gr.Tab("🎵 音楽 (Music)") as music_tab:
                             with gr.Row():
                                 for p in PRESETS[:3]:
                                     preset_buttons[p.id] = gr.Button(
@@ -253,7 +288,7 @@ def create_ui() -> gr.Blocks:
                                     preset_buttons[p.id] = gr.Button(
                                         p.display_label, size="sm", variant="secondary"
                                     )
-                        with gr.Tab("🍃 環境音・効果音 (Sound Effects)"):
+                        with gr.Tab("🍃 環境音・効果音 (Sound Effects)") as sfx_tab:
                             with gr.Row():
                                 for p in SFX_PRESETS[:3]:
                                     preset_buttons[p.id] = gr.Button(
@@ -264,6 +299,18 @@ def create_ui() -> gr.Blocks:
                                     preset_buttons[p.id] = gr.Button(
                                         p.display_label, size="sm", variant="secondary"
                                     )
+
+                # Production Mode & Model Selector (Always visible)
+                with gr.Group(elem_classes=["mode-box"]):
+                    mode_radio = gr.Radio(
+                        choices=[
+                            ("🎵 音楽モード (Stable Audio 3 Medium - 最大6分)", config.model_id),
+                            ("🍃 効果音・環境音モード (Stable Audio 3 Small SFX - 最大2分)", config.sfx_model_id),
+                        ],
+                        value=config.model_id,
+                        label="📻 制作モード / 使用モデル (Mode & Model)",
+                        info="プリセットタブと自動連動します。手動で切り替えることも可能です。",
+                    )
 
                 with gr.Row(elem_classes=["prompt-header-row"]):
                     gr.Markdown("📝 **プロンプト入力**")
@@ -333,7 +380,7 @@ def create_ui() -> gr.Blocks:
                             precision=0,
                         )
 
-                generate_btn = gr.Button("🎼 音楽を生成する", variant="primary", size="lg")
+                generate_btn = gr.Button("🎼 音楽を生成する (Mediumモデル)", variant="primary", size="lg")
 
             # Right Column: Outputs & DAW Integration
             with gr.Column(scale=5):
@@ -367,15 +414,30 @@ def create_ui() -> gr.Blocks:
             outputs=[seed_input],
         )
 
-        # Model selection dynamic update (Show/Hide BPM slider, update duration limits and button text)
+        # Tab Selection Events: Auto-switch mode & model when preset tabs are clicked
+        music_tab.select(
+            fn=lambda cur_dur: get_mode_sync_updates(config.model_id, cur_dur),
+            inputs=[duration],
+            outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
+        )
+        sfx_tab.select(
+            fn=lambda cur_dur: get_mode_sync_updates(config.sfx_model_id, cur_dur),
+            inputs=[duration],
+            outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
+        )
+
+        # Mode Radio Selection Event (Always-visible toggle on main UI)
+        mode_radio.change(
+            fn=lambda m, cur_dur: get_mode_sync_updates(m, cur_dur),
+            inputs=[mode_radio, duration],
+            outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
+        )
+
+        # Model selection dynamic update from Advanced Settings dropdown
         model_select.change(
-            fn=lambda m, cur_dur: (
-                gr.update(value=config.default_bpm, visible=False) if is_sfx_model(m) else gr.update(visible=True),
-                gr.update(value="🍃 効果音を生成する" if is_sfx_model(m) else "🎼 音楽を生成する"),
-                get_duration_slider_update(m, cur_dur),
-            ),
+            fn=lambda m, cur_dur: get_mode_sync_updates(m, cur_dur),
             inputs=[model_select, duration],
-            outputs=[bpm, generate_btn, duration],
+            outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
         )
 
         # Style preset button actions (Music)
@@ -387,11 +449,12 @@ def create_ui() -> gr.Blocks:
                     gr.update(value=preset.bpm, visible=True),
                     gr.update(maximum=config.max_duration, value=preset.duration, info="5秒〜360秒（最大6分）"),
                     config.model_id,
-                    gr.update(value="🎼 音楽を生成する"),
+                    config.model_id,
+                    gr.update(value="🎼 音楽を生成する (Mediumモデル)"),
                     f"🎨 音楽プリセット「{preset.display_label}」を反映しました（BPM: {preset.bpm}, {preset.duration}秒）",
                 ),
                 inputs=[],
-                outputs=[prompt, negative_prompt, bpm, duration, model_select, generate_btn, status_text],
+                outputs=[prompt, negative_prompt, bpm, duration, mode_radio, model_select, generate_btn, status_text],
             )
 
         # Style preset button actions (SFX / Ambience)
@@ -407,11 +470,12 @@ def create_ui() -> gr.Blocks:
                         info="5秒〜120秒（効果音モデル上限: 最大2分）",
                     ),
                     config.sfx_model_id,
-                    gr.update(value="🍃 効果音を生成する"),
+                    config.sfx_model_id,
+                    gr.update(value="🍃 効果音を生成する (Small SFXモデル)"),
                     f"🍃 効果音プリセット「{preset.display_label}」を反映しました（モデル: Small SFX 自動選択, BPMオフ）",
                 ),
                 inputs=[],
-                outputs=[prompt, negative_prompt, bpm, duration, model_select, generate_btn, status_text],
+                outputs=[prompt, negative_prompt, bpm, duration, mode_radio, model_select, generate_btn, status_text],
             )
 
         # Clear prompt action
@@ -455,6 +519,7 @@ def create_ui() -> gr.Blocks:
                 duration,
                 random_seed,
                 seed_input,
+                mode_radio,
                 model_select,
                 generate_btn,
                 status_text,
