@@ -19,18 +19,24 @@ class HistoryItem:
     negative_prompt: str
     seed: int
     model_id: str
+    init_audio_filename: Optional[str] = None
+    init_noise_level: Optional[float] = None
 
     @property
     def display_label(self) -> str:
         """Formatted human-readable label for UI selection."""
         # e.g., "11/12 23:45 | 120 BPM (30s) | Chill Lo-Fi beat... [s:42]"
+        # or    "11/12 23:45 | 🔄 Remix 120 BPM (30s) | ... [s:42]"
         # or    "11/12 23:45 | SFX (45s) | Gentle soothing rain... [s:42]"
         short_prompt = self.prompt.strip()
         if len(short_prompt) > 35:
             short_prompt = short_prompt[:32] + "..."
+        
+        prefix = "🔄 " if self.init_audio_filename else ""
         if self.bpm and self.bpm > 0 and "sfx" not in self.model_id.lower():
-            return f"{self.created_at} | {self.bpm} BPM ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
-        return f"{self.created_at} | SFX ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
+            return f"{self.created_at} | {prefix}{self.bpm} BPM ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
+        mode_str = f"{prefix}SFX" if prefix else "SFX"
+        return f"{self.created_at} | {mode_str} ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
 
 
 def save_metadata(
@@ -41,6 +47,8 @@ def save_metadata(
     duration: int,
     seed: int,
     model_id: str,
+    init_audio_filename: Optional[str] = None,
+    init_noise_level: Optional[float] = None,
 ) -> Path:
     """Saves sidecar JSON metadata alongside the generated WAV file."""
     meta_path = wav_path.with_suffix(".json")
@@ -56,6 +64,8 @@ def save_metadata(
         "negative_prompt": negative_prompt,
         "seed": seed,
         "model_id": model_id,
+        "init_audio_filename": init_audio_filename,
+        "init_noise_level": init_noise_level,
     }
 
     with open(meta_path, "w", encoding="utf-8") as f:

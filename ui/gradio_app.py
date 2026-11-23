@@ -73,6 +73,8 @@ def handle_generate(
     random_seed: bool,
     seed_input: int,
     model_id: str,
+    init_audio: Optional[str] = None,
+    init_noise_level: float = 0.6,
 ) -> Tuple[Optional[str], Optional[int], str, gr.update]:
     """Generates audio, updates output and refreshes the history dropdown."""
     if not prompt or not prompt.strip():
@@ -91,12 +93,15 @@ def handle_generate(
             cfg_scale=float(cfg_scale),
             seed=actual_seed,
             model_id=model_id,
+            init_audio_path=init_audio,
+            init_noise_level=float(init_noise_level) if init_noise_level else 0.6,
         )
         new_choices = get_history_choices()
+        mode_tag = " (Audio-to-Audio)" if init_audio else ""
         return (
             wav_path,
             used_seed,
-            f"✅ 生成完了: {os.path.basename(wav_path)}",
+            f"✅ 生成完了{mode_tag}: {os.path.basename(wav_path)}",
             gr.update(choices=new_choices, value=wav_path),
         )
     except ModelLoadError as e:
@@ -119,10 +124,14 @@ def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional
     bpm_info = "SFX (BPMなし)" if is_sfx else f"{item.bpm} BPM"
     icon = "🍃" if is_sfx else "🎵"
 
+    ref_info = ""
+    if getattr(item, "init_audio_filename", None):
+        ref_info = f"\n> 🔄 *参考音源: {item.init_audio_filename} (アレンジ強度: {item.init_noise_level})*"
+
     return (
         file_path,
         item.seed,
-        f"{icon} **履歴を読み込みました:** {item.created_at} | {bpm_info} | seed: {item.seed}\n> *{item.prompt}*",
+        f"{icon} **履歴を読み込みました:** {item.created_at} | {bpm_info} | seed: {item.seed}\n> *{item.prompt}*{ref_info}",
     )
 
 
@@ -139,6 +148,8 @@ def on_restore_settings(file_path: Optional[str]):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
+            gr.update(),
             "⚠️ 復元する音源を生成履歴から選択してください。",
         )
 
@@ -146,6 +157,8 @@ def on_restore_settings(file_path: Optional[str]):
     item = items.get(file_path)
     if not item:
         return (
+            gr.update(),
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -181,6 +194,14 @@ def on_restore_settings(file_path: Optional[str]):
         )
         msg = f"📋 音楽「{item.filename}」の設定を入力フォームに復元しました！（Seed: {item.seed} 固定）"
 
+    # Audio-to-Audio settings restore
+    init_audio_val = None
+    if getattr(item, "init_audio_filename", None):
+        possible_path = config.output_dir / item.init_audio_filename
+        if possible_path.exists():
+            init_audio_val = str(possible_path)
+    noise_level_val = getattr(item, "init_noise_level", None) or config.default_init_noise_level
+
     return (
         item.prompt,
         item.negative_prompt,
@@ -191,6 +212,8 @@ def on_restore_settings(file_path: Optional[str]):
         model_val,  # mode_radio
         model_val,  # model_select
         btn_update,
+        init_audio_val,
+        noise_level_val,
         msg,
     )
 
@@ -350,6 +373,25 @@ def create_ui() -> gr.Blocks:
                         info="5秒〜360秒（最大6分）",
                     )
 
+                # Audio-to-Audio (Reference Audio Conditioning) Accordion
+                with gr.Accordion("🔄 参考音源からアレンジ生成 (Audio-to-Audio) [任意]", open=False) as init_audio_accordion:
+                    init_audio = gr.Audio(
+                        label="参考音源 (ドラッグ＆ドロップまたはクリックで音源ファイルをセット)",
+                        type="filepath",
+                        sources=["upload"],
+                    )
+                    with gr.Row():
+                        init_noise_level = gr.Slider(
+                            minimum=config.min_init_noise_level,
+                            maximum=config.max_init_noise_level,
+                            value=config.default_init_noise_level,
+                            step=0.05,
+                            label="アレンジ強度 (Noise Level)",
+                            info="0.2〜0.4: 原曲のメロディや構成を強く維持 / 0.6〜0.8: リズムや構成を活かして別ジャンルへ大胆にリメイク",
+                            scale=8,
+                        )
+                        clear_init_audio_btn = gr.Button("🗑️ 参考音源をクリア", size="sm", variant="secondary", scale=2)
+
                 with gr.Accordion("詳細設定 (Advanced Settings)", open=False):
                     model_select = gr.Dropdown(
                         choices=config.available_models,
@@ -403,9 +445,13 @@ def create_ui() -> gr.Blocks:
                         )
                         refresh_history_btn = gr.Button("🔄 更新", size="sm", scale=2)
 
-                    restore_btn = gr.Button(
-                        "📋 選択した音源の設定を入力フォームに復元", variant="secondary"
-                    )
+                    with gr.Row():
+                        restore_btn = gr.Button(
+                            "📋 選択した音源の設定を入力フォームに復元", variant="secondary"
+                        )
+                        set_as_init_audio_btn = gr.Button(
+                            "🔄 選択した音源を「参考音源」にセット", variant="secondary"
+                        )
 
         # Dynamic interactivity: Enable seed_input only when random_seed is False
         random_seed.change(
@@ -485,6 +531,13 @@ def create_ui() -> gr.Blocks:
             outputs=[prompt, negative_prompt, status_text],
         )
 
+        # Clear init_audio action
+        clear_init_audio_btn.click(
+            fn=lambda: (None, "🧹 参考音源をクリアしました（Text-to-Audioモード）"),
+            inputs=[],
+            outputs=[init_audio, status_text],
+        )
+
         # Generate action
         generate_btn.click(
             fn=handle_generate,
@@ -498,6 +551,8 @@ def create_ui() -> gr.Blocks:
                 random_seed,
                 seed_input,
                 model_select,
+                init_audio,
+                init_noise_level,
             ],
             outputs=[audio_player, seed_output, status_text, history_dropdown],
         )
@@ -522,8 +577,24 @@ def create_ui() -> gr.Blocks:
                 mode_radio,
                 model_select,
                 generate_btn,
+                init_audio,
+                init_noise_level,
                 status_text,
             ],
+        )
+
+        set_as_init_audio_btn.click(
+            fn=lambda file_path: (
+                file_path,
+                gr.update(open=True),
+                f"🔄 履歴音源「{os.path.basename(file_path)}」を参考音源にセットしました！（プロンプトやアレンジ強度を設定して生成できます）",
+            ) if file_path and os.path.exists(file_path) else (
+                gr.update(),
+                gr.update(),
+                "⚠️ 履歴から音源を選択してください。",
+            ),
+            inputs=[history_dropdown],
+            outputs=[init_audio, init_audio_accordion, status_text],
         )
 
         refresh_history_btn.click(

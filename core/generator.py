@@ -37,6 +37,26 @@ def is_sfx_model(model_id: str) -> bool:
     return "sfx" in alias or "sfx" in model_id.lower()
 
 
+def load_audio_for_conditioning(file_path: str) -> Tuple[int, torch.Tensor]:
+    """Loads an audio file and converts it to (sample_rate, tensor_channels_first)."""
+    import soundfile as sf
+    try:
+        audio_data, sr = sf.read(file_path)
+    except Exception as e:
+        try:
+            import torchaudio
+            tensor, sr = torchaudio.load(file_path)
+            return sr, tensor.float()
+        except Exception as e2:
+            raise RuntimeError(f"参考音源ファイルの読み込みに失敗しました: {e} (torchaudio: {e2})")
+
+    if audio_data.ndim == 1:
+        tensor = torch.from_numpy(audio_data).unsqueeze(0).float()
+    else:
+        tensor = torch.from_numpy(audio_data.T).float()
+    return sr, tensor
+
+
 class AudioGenerator:
     """Core audio generation engine wrapping stable-audio-3."""
 
@@ -126,9 +146,13 @@ class AudioGenerator:
         cfg_scale: float = 1.0,
         seed: Optional[int] = None,
         model_id: Optional[str] = None,
+        init_audio_path: Optional[str] = None,
+        init_noise_level: float = 0.6,
     ) -> Tuple[str, int]:
         """
         Generates audio from prompt and saves to the output directory.
+
+        Supports text-to-audio and audio-to-audio (conditioning from reference audio).
 
         Returns:
             Tuple[str, int]: (output_wav_filepath, seed_used)
@@ -155,7 +179,22 @@ class AudioGenerator:
 
         is_sfx = is_sfx_model(target_model_id) or (bpm <= 0)
         mode_label = "SFX/Ambience" if is_sfx else f"Music (BPM={bpm})"
-        print(f"Generating audio [{mode_label}]: Prompt='{full_prompt}', Neg='{neg_prompt}', Duration={effective_duration}s, Seed={seed}")
+
+        # Prepare init_audio if provided (Audio-to-Audio / Remix)
+        init_audio_input = None
+        init_audio_filename = None
+        if init_audio_path and os.path.exists(init_audio_path):
+            try:
+                sr, audio_tensor = load_audio_for_conditioning(init_audio_path)
+                init_audio_input = (sr, audio_tensor)
+                init_audio_filename = Path(init_audio_path).name
+                print(
+                    f"Generating audio [{mode_label} / Audio-to-Audio]: Ref='{init_audio_filename}', NoiseLevel={init_noise_level}, Prompt='{full_prompt}', Duration={effective_duration}s, Seed={seed}"
+                )
+            except Exception as e:
+                print(f"Warning: Failed to load reference audio '{init_audio_path}': {e}. Falling back to Text-to-Audio.")
+        else:
+            print(f"Generating audio [{mode_label}]: Prompt='{full_prompt}', Neg='{neg_prompt}', Duration={effective_duration}s, Seed={seed}")
 
         # Set seeds for reproducibility
         torch.manual_seed(seed)
@@ -167,15 +206,20 @@ class AudioGenerator:
         model_sample_size = self.model_config.get("sample_size", 16777216)
 
         with torch.no_grad():
-            output_tensor = self.model.generate(
-                prompt=full_prompt,
-                negative_prompt=neg_prompt if neg_prompt else None,
-                duration=float(effective_duration),
-                steps=steps,
-                cfg_scale=cfg_scale,
-                seed=seed,
-                sample_size=model_sample_size,
-            )
+            gen_kwargs = {
+                "prompt": full_prompt,
+                "negative_prompt": neg_prompt if neg_prompt else None,
+                "duration": float(effective_duration),
+                "steps": steps,
+                "cfg_scale": cfg_scale,
+                "seed": seed,
+                "sample_size": model_sample_size,
+            }
+            if init_audio_input is not None:
+                gen_kwargs["init_audio"] = init_audio_input
+                gen_kwargs["init_noise_level"] = float(init_noise_level)
+
+            output_tensor = self.model.generate(**gen_kwargs)
 
         # Format tensor to audio (channels, samples)
         output_tensor = output_tensor.to(torch.float32).cpu()
@@ -222,6 +266,8 @@ class AudioGenerator:
             duration=effective_duration,
             seed=seed,
             model_id=target_model_id,
+            init_audio_filename=init_audio_filename,
+            init_noise_level=float(init_noise_level) if init_audio_input else None,
         )
 
         return str(output_path), seed

@@ -63,6 +63,11 @@ class AppConfig:
     min_cfg_scale: float = 0.5
     max_cfg_scale: float = 5.0
 
+    # Audio-to-Audio (Init Audio) defaults
+    default_init_noise_level: float = 0.6
+    min_init_noise_level: float = 0.1
+    max_init_noise_level: float = 0.9
+
     # Paths
     base_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent)
     output_dir: Path = field(init=False)
