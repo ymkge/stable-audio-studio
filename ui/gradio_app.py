@@ -12,6 +12,7 @@ from core.config import config
 from core.generator import generator, ModelLoadError, is_sfx_model
 from core.presets import PRESETS, SFX_PRESETS, StylePreset
 from core.history import load_history, HistoryItem
+from core.prompt_enhancer import enhance_prompt
 
 
 def get_history_choices() -> list:
@@ -27,6 +28,21 @@ def open_output_folder() -> str:
         return "📁 Finderで保存先フォルダを開きました"
     except Exception as e:
         return f"フォルダを開くのに失敗しました: {e}"
+
+
+def handle_enhance_prompt(current_prompt: str, model_id: str, current_bpm: int):
+    """Enhances the prompt and negative prompt using the prompt_enhancer core engine."""
+    res = enhance_prompt(user_input=current_prompt, model_id=model_id, current_bpm=current_bpm)
+    tag_str = ", ".join(res.applied_tags) if res.applied_tags else "自動最適化"
+    is_sfx = is_sfx_model(model_id)
+    if not is_sfx and res.suggested_bpm:
+        bpm_update = gr.update(value=res.suggested_bpm)
+        bpm_msg = f", 推奨BPM: {res.suggested_bpm}"
+    else:
+        bpm_update = gr.update()
+        bpm_msg = ""
+    status_msg = f"🪄 プロンプトを自動強化しました！【適用: {tag_str}{bpm_msg}】"
+    return res.prompt, res.negative_prompt, bpm_update, status_msg
 
 
 def get_duration_slider_update(model_id: str, current_duration: int) -> gr.update:
@@ -336,18 +352,26 @@ def create_ui() -> gr.Blocks:
                     )
 
                 with gr.Row(elem_classes=["prompt-header-row"]):
-                    gr.Markdown("📝 **プロンプト入力**")
-                    clear_prompt_btn = gr.Button(
-                        "🧹 プロンプトをクリア",
-                        size="sm",
-                        variant="secondary",
-                        scale=0,
-                        min_width=140,
-                    )
+                    gr.Markdown("📝 **プロンプト入力** *(日本語・英語対応)*")
+                    with gr.Row():
+                        enhance_prompt_btn = gr.Button(
+                            "🪄 プロンプトを自動強化",
+                            size="sm",
+                            variant="primary",
+                            scale=0,
+                            min_width=160,
+                        )
+                        clear_prompt_btn = gr.Button(
+                            "🧹 クリア",
+                            size="sm",
+                            variant="secondary",
+                            scale=0,
+                            min_width=70,
+                        )
 
                 prompt = gr.Textbox(
                     label="プロンプト (Prompt)",
-                    placeholder="例: Chill Lo-Fi hip hop beat, mellow electric piano chords, soft warm bass, subtle vinyl crackle",
+                    placeholder="日本語または英語で入力してください（例: 深夜のチルなローファイ / 喫茶店のジャズ / 秋の夜の森とフクロウ）\n※入力後に右上の「🪄 プロンプトを自動強化」を押すと高音質な英語プロンプトへ自動展開されます",
                     lines=3,
                 )
                 negative_prompt = gr.Textbox(
@@ -524,7 +548,13 @@ def create_ui() -> gr.Blocks:
                 outputs=[prompt, negative_prompt, bpm, duration, mode_radio, model_select, generate_btn, status_text],
             )
 
-        # Clear prompt action
+        # Prompt Enhance & Clear actions
+        enhance_prompt_btn.click(
+            fn=handle_enhance_prompt,
+            inputs=[prompt, model_select, bpm],
+            outputs=[prompt, negative_prompt, bpm, status_text],
+        )
+
         clear_prompt_btn.click(
             fn=lambda: ("", "", "🧹 プロンプトとネガティブプロンプトをクリアしました。"),
             inputs=[],
