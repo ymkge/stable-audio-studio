@@ -21,18 +21,31 @@ class HistoryItem:
     model_id: str
     init_audio_filename: Optional[str] = None
     init_noise_level: Optional[float] = None
+    is_seamless_loop: bool = False
+    crossfade_seconds: Optional[float] = None
+    fade_in_seconds: Optional[float] = None
+    fade_out_seconds: Optional[float] = None
 
     @property
     def display_label(self) -> str:
         """Formatted human-readable label for UI selection."""
         # e.g., "11/12 23:45 | 120 BPM (30s) | Chill Lo-Fi beat... [s:42]"
-        # or    "11/12 23:45 | 🔄 Remix 120 BPM (30s) | ... [s:42]"
-        # or    "11/12 23:45 | SFX (45s) | Gentle soothing rain... [s:42]"
+        # or    "11/12 23:45 | 🔁 Loop SFX (42s) | Gentle soothing rain... [s:42]"
+        # or    "11/12 23:45 | 🌊 Fade 120 BPM (30s) | ... [s:42]"
         short_prompt = self.prompt.strip()
         if len(short_prompt) > 35:
             short_prompt = short_prompt[:32] + "..."
         
-        prefix = "🔄 " if self.init_audio_filename else ""
+        tag_parts = []
+        if self.is_seamless_loop or self.filename.endswith("_loop.wav"):
+            tag_parts.append("🔁 Loop")
+        elif self.fade_in_seconds or self.fade_out_seconds or self.filename.endswith("_fade.wav"):
+            tag_parts.append("🌊 Fade")
+        elif self.init_audio_filename:
+            tag_parts.append("🔄 Remix")
+
+        prefix = f"{' '.join(tag_parts)} " if tag_parts else ""
+
         if self.bpm and self.bpm > 0 and "sfx" not in self.model_id.lower():
             return f"{self.created_at} | {prefix}{self.bpm} BPM ({self.duration}s) | {short_prompt} [seed: {self.seed}]"
         mode_str = f"{prefix}SFX" if prefix else "SFX"
@@ -79,11 +92,16 @@ def parse_from_filename(wav_path: Path) -> HistoryItem:
     # Music: YYYYMMDD_HHMMSS_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav
     # SFX:   YYYYMMDD_HHMMSS_sfx_{duration}s_{prompt_summary}_s{seed}.wav
     filename = wav_path.name
+    clean_stem = filename.removesuffix(".wav")
+    is_loop = clean_stem.endswith("_loop")
+    is_fade = clean_stem.endswith("_fade")
+    normalized_name = re.sub(r"_(loop|fade)$", "", clean_stem) + ".wav"
+
     pattern_music = r"^(\d{8})_(\d{4,6})_(\d+)bpm_(\d+)s_(.*)_s(\d+)\.wav$"
     pattern_sfx = r"^(\d{8})_(\d{4,6})_sfx_(\d+)s_(.*)_s(\d+)\.wav$"
 
-    match_music = re.match(pattern_music, filename)
-    match_sfx = re.match(pattern_sfx, filename)
+    match_music = re.match(pattern_music, normalized_name)
+    match_sfx = re.match(pattern_sfx, normalized_name)
 
     created_at = datetime.fromtimestamp(wav_path.stat().st_mtime).strftime("%Y/%m/%d %H:%M")
     model_id = "stabilityai/stable-audio-3-medium"
@@ -118,6 +136,9 @@ def parse_from_filename(wav_path: Path) -> HistoryItem:
         negative_prompt=negative_prompt,
         seed=seed,
         model_id=model_id,
+        is_seamless_loop=is_loop,
+        fade_in_seconds=2.0 if is_fade else None,
+        fade_out_seconds=3.0 if is_fade else None,
     )
 
 
