@@ -13,6 +13,7 @@ from core.generator import generator, ModelLoadError, is_sfx_model
 from core.presets import PRESETS, SFX_PRESETS, StylePreset
 from core.history import load_history, HistoryItem
 from core.prompt_enhancer import enhance_prompt
+from core.audio_processor import create_seamless_loop, apply_fade
 
 
 def get_history_choices() -> list:
@@ -43,6 +44,34 @@ def handle_enhance_prompt(current_prompt: str, model_id: str, current_bpm: int):
         bpm_msg = ""
     status_msg = f"🪄 プロンプトを自動強化しました！【適用: {tag_str}{bpm_msg}】"
     return res.prompt, res.negative_prompt, bpm_update, status_msg
+
+
+def handle_create_loop(preview_path: Optional[str], history_path: Optional[str], crossfade_sec: float):
+    """Creates a seamless infinite loop audio from preview or history audio."""
+    target_path = preview_path or history_path
+    if not target_path or not os.path.exists(target_path):
+        return gr.update(), "⚠️ ループ加工する音源がありません。先に音源を生成するか履歴から選択してください。", gr.update()
+
+    try:
+        out_wav, msg = create_seamless_loop(target_path, crossfade_duration=float(crossfade_sec))
+        new_choices = get_history_choices()
+        return out_wav, f"✅ {msg}", gr.update(choices=new_choices, value=out_wav)
+    except Exception as e:
+        return gr.update(), f"❌ ループ作成エラー: {str(e)}", gr.update()
+
+
+def handle_apply_fade(preview_path: Optional[str], history_path: Optional[str], fade_in: float, fade_out: float):
+    """Applies smooth S-curve fade-in and fade-out to audio."""
+    target_path = preview_path or history_path
+    if not target_path or not os.path.exists(target_path):
+        return gr.update(), "⚠️ フェード加工する音源がありません。先に音源を生成するか履歴から選択してください。", gr.update()
+
+    try:
+        out_wav, msg = apply_fade(target_path, fade_in_sec=float(fade_in), fade_out_sec=float(fade_out))
+        new_choices = get_history_choices()
+        return out_wav, f"✅ {msg}", gr.update(choices=new_choices, value=out_wav)
+    except Exception as e:
+        return gr.update(), f"❌ フェード加工エラー: {str(e)}", gr.update()
 
 
 def get_duration_slider_update(model_id: str, current_duration: int) -> gr.update:
@@ -457,6 +486,41 @@ def create_ui() -> gr.Blocks:
                 with gr.Row():
                     open_finder_btn = gr.Button("📁 保存先フォルダを開く (Finder)", variant="secondary")
 
+                # Audio Post-Processing (Seamless Loop & Fade)
+                with gr.Accordion("🔁 オーディオ加工・ループ＆フェード (Post-Processing)", open=False) as processor_accordion:
+                    gr.Markdown("💡 *プレビュー中または履歴選択中の音源に対して、シームレスループ化やフェード処理を適用して別名保存します。*")
+                    with gr.Tabs():
+                        with gr.Tab("🔁 シームレス・ループ作成"):
+                            gr.Markdown("末尾と先頭を等電力クロスフェードで滑らかに繋ぎ、何度リピート再生しても継ぎ目のない永久ループWAVを作成します。")
+                            crossfade_slider = gr.Slider(
+                                minimum=1.0,
+                                maximum=10.0,
+                                value=3.0,
+                                step=0.5,
+                                label="クロスフェード時間 (秒)",
+                                info="環境音・アンビエントは 3〜5秒、短いフレーズは 1〜2秒がおすすめ",
+                            )
+                            create_loop_btn = gr.Button("🔁 シームレスループWAVを作成・保存", variant="primary")
+
+                        with gr.Tab("🌊 フェードイン / フェードアウト"):
+                            gr.Markdown("曲の始まりや終わりに自然なS字カーブ（Raised Cosine）フェードを付与して保存します。")
+                            with gr.Row():
+                                fade_in_slider = gr.Slider(
+                                    minimum=0.0,
+                                    maximum=10.0,
+                                    value=2.0,
+                                    step=0.5,
+                                    label="フェードイン (秒)",
+                                )
+                                fade_out_slider = gr.Slider(
+                                    minimum=0.0,
+                                    maximum=10.0,
+                                    value=3.0,
+                                    step=0.5,
+                                    label="フェードアウト (秒)",
+                                )
+                            apply_fade_btn = gr.Button("🌊 フェード加工WAVを作成・保存", variant="primary")
+
                 # History Gallery Section
                 with gr.Accordion("📜 生成履歴 (History Gallery)", open=True):
                     with gr.Row():
@@ -638,6 +702,19 @@ def create_ui() -> gr.Blocks:
             fn=open_output_folder,
             inputs=[],
             outputs=[status_text],
+        )
+
+        # Post-Processing actions (Seamless Loop & Fade)
+        create_loop_btn.click(
+            fn=handle_create_loop,
+            inputs=[audio_player, history_dropdown, crossfade_slider],
+            outputs=[audio_player, status_text, history_dropdown],
+        )
+
+        apply_fade_btn.click(
+            fn=handle_apply_fade,
+            inputs=[audio_player, history_dropdown, fade_in_slider, fade_out_slider],
+            outputs=[audio_player, status_text, history_dropdown],
         )
 
         # Shutdown Javascript Confirmation UX
