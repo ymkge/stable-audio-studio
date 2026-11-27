@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 import os
 import random
 import re
@@ -148,6 +148,8 @@ class AudioGenerator:
         model_id: Optional[str] = None,
         init_audio_path: Optional[str] = None,
         init_noise_level: float = 0.6,
+        take_index: Optional[int] = None,
+        total_takes: Optional[int] = None,
     ) -> Tuple[str, int]:
         """
         Generates audio from prompt and saves to the output directory.
@@ -231,14 +233,15 @@ class AudioGenerator:
         output_tensor = torch.clamp(output_tensor, -1.0, 1.0)
 
         # File naming:
-        # Music: YYYYMMDD_HHMMSS_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}.wav
-        # SFX:   YYYYMMDD_HHMMSS_sfx_{duration}s_{prompt_summary}_s{seed}.wav
+        # Music: YYYYMMDD_HHMMSS_{bpm}bpm_{duration}s_{prompt_summary}_s{seed}(_t{take}).wav
+        # SFX:   YYYYMMDD_HHMMSS_sfx_{duration}s_{prompt_summary}_s{seed}(_t{take}).wav
         now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         prompt_summary = self.sanitize_text(prompt)
+        take_suffix = f"_t{take_index}" if (total_takes and total_takes > 1 and take_index) else ""
         if is_sfx:
-            filename = f"{now_str}_sfx_{effective_duration}s_{prompt_summary}_s{seed}.wav"
+            filename = f"{now_str}_sfx_{effective_duration}s_{prompt_summary}_s{seed}{take_suffix}.wav"
         else:
-            filename = f"{now_str}_{bpm}bpm_{effective_duration}s_{prompt_summary}_s{seed}.wav"
+            filename = f"{now_str}_{bpm}bpm_{effective_duration}s_{prompt_summary}_s{seed}{take_suffix}.wav"
         output_path = self.config.output_dir / filename
 
         sample_rate = self.model_config.get("sample_rate", self.config.sample_rate)
@@ -268,9 +271,90 @@ class AudioGenerator:
             model_id=target_model_id,
             init_audio_filename=init_audio_filename,
             init_noise_level=float(init_noise_level) if init_audio_input else None,
+            take_index=take_index,
+            total_takes=total_takes,
         )
 
         return str(output_path), seed
+
+    def generate_takes(
+        self,
+        prompt: str,
+        negative_prompt: str = "",
+        bpm: int = 120,
+        duration: int = 30,
+        steps: int = 8,
+        cfg_scale: float = 1.0,
+        seed: Optional[int] = None,
+        model_id: Optional[str] = None,
+        init_audio_path: Optional[str] = None,
+        init_noise_level: float = 0.6,
+        num_takes: int = 1,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> List[Tuple[str, int]]:
+        """
+        Generates multiple takes for comparison/audition.
+
+        Args:
+            num_takes: Number of takes to generate (1 to 4).
+            progress_callback: Optional callback(current_take, total_takes, message) for reporting progress.
+
+        Returns:
+            List[Tuple[str, int]]: List of (wav_path, seed_used) for each take.
+        """
+        target_takes = max(1, min(int(num_takes), self.config.max_takes))
+        if target_takes == 1:
+            if progress_callback:
+                progress_callback(1, 1, "音声を生成中...")
+            wav_path, used_seed = self.generate(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                bpm=bpm,
+                duration=duration,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=seed,
+                model_id=model_id,
+                init_audio_path=init_audio_path,
+                init_noise_level=init_noise_level,
+                take_index=None,
+                total_takes=None,
+            )
+            return [(wav_path, used_seed)]
+
+        # Pre-load model once before loop
+        target_model_id = model_id or self.config.model_id
+        self.load_model(model_id=target_model_id)
+
+        results: List[Tuple[str, int]] = []
+        base_seed = seed if (seed is not None and seed >= 0) else None
+
+        for idx in range(1, target_takes + 1):
+            if base_seed is not None:
+                take_seed = (base_seed + (idx - 1)) % (2**32)
+            else:
+                take_seed = random.randint(0, 2**32 - 1)
+
+            if progress_callback:
+                progress_callback(idx, target_takes, f"テイク {idx}/{target_takes} を生成中 (seed: {take_seed})...")
+
+            wav_path, used_seed = self.generate(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                bpm=bpm,
+                duration=duration,
+                steps=steps,
+                cfg_scale=cfg_scale,
+                seed=take_seed,
+                model_id=target_model_id,
+                init_audio_path=init_audio_path,
+                init_noise_level=init_noise_level,
+                take_index=idx,
+                total_takes=target_takes,
+            )
+            results.append((wav_path, used_seed))
+
+        return results
 
 
 # Module-level singleton instance for convenience

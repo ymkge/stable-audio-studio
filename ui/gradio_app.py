@@ -86,17 +86,28 @@ def get_duration_slider_update(model_id: str, current_duration: int) -> gr.updat
     return gr.update(maximum=max_sec, value=safe_duration, info=info)
 
 
-def get_mode_sync_updates(target_model_id: str, current_duration: int):
+def get_generate_btn_label(takes: int, model_id: str) -> str:
+    """Returns dynamic label for the generate button based on mode and take count."""
+    is_sfx = is_sfx_model(model_id)
+    prefix = "🍃 効果音" if is_sfx else "🎼 音楽"
+    model_tag = "Small SFXモデル" if is_sfx else "Mediumモデル"
+    takes_int = int(takes)
+    if takes_int > 1:
+        return f"{prefix}を一括生成 ({takes_int}テイク / {model_tag})"
+    return f"{prefix}を生成する ({model_tag})"
+
+
+def get_mode_sync_updates(target_model_id: str, current_duration: int, takes: int = 1):
     """Generates unified updates across UI components when model/mode changes."""
     is_sfx = is_sfx_model(target_model_id)
     dur_update = get_duration_slider_update(target_model_id, current_duration)
+    btn_label = get_generate_btn_label(takes, target_model_id)
+    btn_update = gr.update(value=btn_label)
     if is_sfx:
         bpm_update = gr.update(value=config.default_bpm, visible=False)
-        btn_update = gr.update(value="🍃 効果音を生成する (Small SFXモデル)")
         msg = "🍃 効果音・環境音モードに切り替えました（モデル: Small SFX 自動選択, BPMオフ）"
     else:
         bpm_update = gr.update(visible=True)
-        btn_update = gr.update(value="🎼 音楽を生成する (Mediumモデル)")
         msg = "🎵 音楽モードに切り替えました（モデル: Medium 自動選択）"
     return (
         target_model_id,  # for mode_radio
@@ -120,16 +131,46 @@ def handle_generate(
     model_id: str,
     init_audio: Optional[str] = None,
     init_noise_level: float = 0.6,
-) -> Tuple[Optional[str], Optional[int], str, gr.update]:
-    """Generates audio, updates output and refreshes the history dropdown."""
+    num_takes: int = 1,
+    progress=gr.Progress(track_tqdm=True),
+) -> Tuple[
+    Optional[str],
+    Optional[int],
+    str,
+    gr.update,
+    gr.update,
+    Optional[str],
+    str,
+    Optional[str],
+    str,
+    Optional[str],
+    str,
+    Optional[str],
+    str,
+    gr.update,
+]:
+    """Generates audio (single or multiple takes) and updates UI & audition slots."""
+    empty_audition = (
+        gr.update(visible=False),
+        None, "",
+        None, "",
+        None, "",
+        None, "",
+        gr.update(),
+    )
     if not prompt or not prompt.strip():
-        return None, None, "⚠️ プロンプトを入力してください。", gr.update()
+        return (None, None, "⚠️ プロンプトを入力してください。", gr.update(), *empty_audition)
 
     actual_seed = None if random_seed else int(seed_input)
     safe_bpm = int(bpm) if bpm is not None else 0
+    safe_takes = max(1, min(int(num_takes), config.max_takes))
 
     try:
-        wav_path, used_seed = generator.generate(
+        def prog_callback(cur_take: int, total: int, msg: str):
+            ratio = (cur_take - 1) / max(total, 1)
+            progress(ratio, desc=msg)
+
+        results = generator.generate_takes(
             prompt=prompt,
             negative_prompt=negative_prompt,
             bpm=safe_bpm,
@@ -140,19 +181,74 @@ def handle_generate(
             model_id=model_id,
             init_audio_path=init_audio,
             init_noise_level=float(init_noise_level) if init_noise_level else 0.6,
+            num_takes=safe_takes,
+            progress_callback=prog_callback,
         )
+
+        progress(1.0, desc="生成完了！")
         new_choices = get_history_choices()
         mode_tag = " (Audio-to-Audio)" if init_audio else ""
-        return (
-            wav_path,
-            used_seed,
-            f"✅ 生成完了{mode_tag}: {os.path.basename(wav_path)}",
-            gr.update(choices=new_choices, value=wav_path),
-        )
+        total_gen = len(results)
+
+        main_wav, main_seed = results[0]
+
+        if total_gen == 1:
+            status_msg = f"✅ 生成完了{mode_tag}: {os.path.basename(main_wav)}"
+            return (
+                main_wav,
+                main_seed,
+                status_msg,
+                gr.update(choices=new_choices, value=main_wav),
+                gr.update(visible=False),
+                None, "",
+                None, "",
+                None, "",
+                None, "",
+                gr.update(),
+            )
+        else:
+            status_msg = f"✅ 一括生成完了 ({total_gen}テイク){mode_tag}: 右上の「🎲 オーディション」で各テイクを聴き比べできます。"
+            take_players = [None, None, None, None]
+            take_infos = ["", "", "", ""]
+            for i, (w_path, s_val) in enumerate(results):
+                if i < 4:
+                    take_players[i] = w_path
+                    take_infos[i] = f"**Take {i+1}** | Seed: `{s_val}` | ファイル: `{os.path.basename(w_path)}`"
+
+            return (
+                main_wav,
+                main_seed,
+                status_msg,
+                gr.update(choices=new_choices, value=main_wav),
+                gr.update(visible=True),
+                take_players[0], take_infos[0],
+                take_players[1], take_infos[1],
+                take_players[2], take_infos[2],
+                take_players[3], take_infos[3],
+                gr.update(selected=0),
+            )
     except ModelLoadError as e:
-        return None, None, f"❌ モデルエラー:\n{str(e)}", gr.update()
+        return (None, None, f"❌ モデルエラー:\n{str(e)}", gr.update(), *empty_audition)
     except Exception as e:
-        return None, None, f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}", gr.update()
+        return (None, None, f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}", gr.update(), *empty_audition)
+
+
+def on_select_take(take_idx: int, take_audio: Optional[str]) -> Tuple[Optional[str], Optional[int], str, gr.update]:
+    """Sets the chosen take as the main preview audio and processing target."""
+    if not take_audio or not os.path.exists(take_audio):
+        return None, None, "⚠️ 有効なテイク音源がありません。", gr.update()
+
+    items = {item.file_path: item for item in load_history(config.output_dir)}
+    item = items.get(take_audio)
+    seed_val = item.seed if item else None
+
+    status_msg = f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(take_audio)}` （メイン試聴＆オーディオ加工対象にセット）"
+    return (
+        take_audio,
+        seed_val,
+        status_msg,
+        gr.update(value=take_audio),
+    )
 
 
 def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional[int], str]:
@@ -426,6 +522,14 @@ def create_ui() -> gr.Blocks:
                         info="5秒〜360秒（最大6分）",
                     )
 
+                with gr.Row():
+                    num_takes = gr.Radio(
+                        choices=[1, 2, 3, 4],
+                        value=config.default_takes,
+                        label="🎲 生成テイク数 (一括オーディション)",
+                        info="異なるシード値で指定テイク数を一括生成し、右列で聴き比べ（オーディション）できます。",
+                    )
+
                 # Audio-to-Audio (Reference Audio Conditioning) Accordion
                 with gr.Accordion("🔄 参考音源からアレンジ生成 (Audio-to-Audio) [任意]", open=False) as init_audio_accordion:
                     init_audio = gr.Audio(
@@ -479,6 +583,33 @@ def create_ui() -> gr.Blocks:
 
             # Right Column: Outputs & DAW Integration
             with gr.Column(scale=5):
+                # Multi-Take Audition Section (Visible when 2+ takes generated)
+                with gr.Group(visible=False) as audition_group:
+                    with gr.Row():
+                        gr.Markdown("### 🎲 オーディション（テイク聴き比べ）")
+                        audition_close_btn = gr.Button("✕ 閉じる", size="sm", variant="secondary", scale=0, min_width=70)
+
+                    with gr.Tabs() as audition_tabs:
+                        with gr.Tab("🎧 Take 1", id=0) as tab_take_1:
+                            take_player_1 = gr.Audio(label="Take 1 音源", type="filepath")
+                            take_info_1 = gr.Markdown("")
+                            select_take_1_btn = gr.Button("⭐ Take 1 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
+
+                        with gr.Tab("🎧 Take 2", id=1) as tab_take_2:
+                            take_player_2 = gr.Audio(label="Take 2 音源", type="filepath")
+                            take_info_2 = gr.Markdown("")
+                            select_take_2_btn = gr.Button("⭐ Take 2 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
+
+                        with gr.Tab("🎧 Take 3", id=2) as tab_take_3:
+                            take_player_3 = gr.Audio(label="Take 3 音源", type="filepath")
+                            take_info_3 = gr.Markdown("")
+                            select_take_3_btn = gr.Button("⭐ Take 3 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
+
+                        with gr.Tab("🎧 Take 4", id=3) as tab_take_4:
+                            take_player_4 = gr.Audio(label="Take 4 音源", type="filepath")
+                            take_info_4 = gr.Markdown("")
+                            select_take_4_btn = gr.Button("⭐ Take 4 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
+
                 audio_player = gr.Audio(label="生成された音楽 (Preview)", type="filepath")
                 seed_output = gr.Number(label="使用されたシード値 (Used Seed)", precision=0, interactive=False)
                 status_text = gr.Markdown("")
@@ -550,28 +681,35 @@ def create_ui() -> gr.Blocks:
 
         # Tab Selection Events: Auto-switch mode & model when preset tabs are clicked
         music_tab.select(
-            fn=lambda cur_dur: get_mode_sync_updates(config.model_id, cur_dur),
-            inputs=[duration],
+            fn=lambda cur_dur, takes: get_mode_sync_updates(config.model_id, cur_dur, takes),
+            inputs=[duration, num_takes],
             outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
         )
         sfx_tab.select(
-            fn=lambda cur_dur: get_mode_sync_updates(config.sfx_model_id, cur_dur),
-            inputs=[duration],
+            fn=lambda cur_dur, takes: get_mode_sync_updates(config.sfx_model_id, cur_dur, takes),
+            inputs=[duration, num_takes],
             outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
         )
 
         # Mode Radio Selection Event (Always-visible toggle on main UI)
         mode_radio.change(
-            fn=lambda m, cur_dur: get_mode_sync_updates(m, cur_dur),
-            inputs=[mode_radio, duration],
+            fn=lambda m, cur_dur, takes: get_mode_sync_updates(m, cur_dur, takes),
+            inputs=[mode_radio, duration, num_takes],
             outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
         )
 
         # Model selection dynamic update from Advanced Settings dropdown
         model_select.change(
-            fn=lambda m, cur_dur: get_mode_sync_updates(m, cur_dur),
-            inputs=[model_select, duration],
+            fn=lambda m, cur_dur, takes: get_mode_sync_updates(m, cur_dur, takes),
+            inputs=[model_select, duration, num_takes],
             outputs=[mode_radio, model_select, bpm, duration, generate_btn, status_text],
+        )
+
+        # Dynamic update on take count change
+        num_takes.change(
+            fn=lambda takes, m: gr.update(value=get_generate_btn_label(takes, m)),
+            inputs=[num_takes, model_select],
+            outputs=[generate_btn],
         )
 
         # Style preset button actions (Music)
@@ -632,7 +770,7 @@ def create_ui() -> gr.Blocks:
             outputs=[init_audio, status_text],
         )
 
-        # Generate action
+        # Generate action (Single or Multi-Take Audition)
         generate_btn.click(
             fn=handle_generate,
             inputs=[
@@ -647,8 +785,53 @@ def create_ui() -> gr.Blocks:
                 model_select,
                 init_audio,
                 init_noise_level,
+                num_takes,
             ],
+            outputs=[
+                audio_player,
+                seed_output,
+                status_text,
+                history_dropdown,
+                audition_group,
+                take_player_1,
+                take_info_1,
+                take_player_2,
+                take_info_2,
+                take_player_3,
+                take_info_3,
+                take_player_4,
+                take_info_4,
+                audition_tabs,
+            ],
+        )
+
+        # Audition Actions (Select take to main player & target)
+        select_take_1_btn.click(
+            fn=lambda a: on_select_take(1, a),
+            inputs=[take_player_1],
             outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+        select_take_2_btn.click(
+            fn=lambda a: on_select_take(2, a),
+            inputs=[take_player_2],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+        select_take_3_btn.click(
+            fn=lambda a: on_select_take(3, a),
+            inputs=[take_player_3],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+        select_take_4_btn.click(
+            fn=lambda a: on_select_take(4, a),
+            inputs=[take_player_4],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+
+        # Close audition section
+        audition_close_btn.click(
+            fn=lambda: gr.update(visible=False),
+            inputs=[],
+            outputs=[audition_group],
         )
 
         # History Gallery Actions
