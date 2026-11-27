@@ -68,6 +68,11 @@ class AppConfig:
     min_init_noise_level: float = 0.1
     max_init_noise_level: float = 0.9
 
+    # Multi-take audition defaults
+    default_takes: int = 1
+    min_takes: int = 1
+    max_takes: int = 4
+
     # Paths
     base_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent)
     output_dir: Path = field(init=False)
