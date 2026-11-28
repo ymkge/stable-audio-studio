@@ -328,12 +328,18 @@ class AudioGenerator:
 
         results: List[Tuple[str, int]] = []
         base_seed = seed if (seed is not None and seed >= 0) else None
+        used_seeds = set()
 
         for idx in range(1, target_takes + 1):
             if base_seed is not None:
-                take_seed = (base_seed + (idx - 1)) % (2**32)
+                # Use large prime offset so each take explores distinctly different latent trajectories
+                take_seed = (base_seed + (idx - 1) * 10007) % (2**32)
             else:
+                # Ensure each take in the batch receives a genuinely unique random seed
                 take_seed = random.randint(0, 2**32 - 1)
+                while take_seed in used_seeds:
+                    take_seed = random.randint(0, 2**32 - 1)
+            used_seeds.add(take_seed)
 
             if progress_callback:
                 progress_callback(idx, target_takes, f"テイク {idx}/{target_takes} を生成中 (seed: {take_seed})...")

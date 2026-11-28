@@ -207,7 +207,10 @@ def handle_generate(
                 gr.update(),
             )
         else:
-            status_msg = f"✅ 一括生成完了 ({total_gen}テイク){mode_tag}: 右上の「🎲 オーディション」で各テイクを聴き比べできます。"
+            status_msg = (
+                f"✅ 一括生成完了 ({total_gen}テイク){mode_tag}: "
+                f"右上の「🎲 オーディション」で各タブを切り替えると、プレビュープレイヤーが自動連動してスムーズに聴き比べできます。"
+            )
             take_players = [None, None, None, None]
             take_infos = ["", "", "", ""]
             for i, (w_path, s_val) in enumerate(results):
@@ -233,16 +236,30 @@ def handle_generate(
         return (None, None, f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}", gr.update(), *empty_audition)
 
 
-def on_select_take(take_idx: int, take_audio: Optional[str]) -> Tuple[Optional[str], Optional[int], str, gr.update]:
+def on_select_take(
+    take_idx: int,
+    take_audio: Optional[str],
+    is_explicit_adopt: bool = False,
+) -> Tuple[gr.update, gr.update, str, gr.update]:
     """Sets the chosen take as the main preview audio and processing target."""
     if not take_audio or not os.path.exists(take_audio):
-        return None, None, "⚠️ 有効なテイク音源がありません。", gr.update()
+        return gr.update(), gr.update(), "⚠️ 有効なテイク音源がありません。", gr.update()
 
     items = {item.file_path: item for item in load_history(config.output_dir)}
     item = items.get(take_audio)
     seed_val = item.seed if item else None
 
-    status_msg = f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(take_audio)}` （メイン試聴＆オーディオ加工対象にセット）"
+    if is_explicit_adopt:
+        status_msg = (
+            f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(take_audio)}` "
+            f"(Seed: {seed_val})（メイン試聴＆オーディオ加工対象にセット）"
+        )
+    else:
+        status_msg = (
+            f"🎧 **Take {take_idx} をプレビュー中:** `{os.path.basename(take_audio)}` "
+            f"(Seed: {seed_val})（メイン試聴＆オーディオ加工対象に自動連動）"
+        )
+
     return (
         take_audio,
         seed_val,
@@ -544,7 +561,7 @@ def create_ui() -> gr.Blocks:
                             value=config.default_init_noise_level,
                             step=0.05,
                             label="アレンジ強度 (Noise Level)",
-                            info="0.2〜0.4: 原曲のメロディや構成を強く維持 / 0.6〜0.8: リズムや構成を活かして別ジャンルへ大胆にリメイク",
+                            info="0.2〜0.4: 原曲のメロディや構成を強く維持 / 0.6〜0.8: リズムや構成を活かして別ジャンルへ大胆にリメイク（※複数テイクで差を出したい場合は0.6以上推奨）",
                             scale=8,
                         )
                         clear_init_audio_btn = gr.Button("🗑️ 参考音源をクリア", size="sm", variant="secondary", scale=2)
@@ -588,6 +605,7 @@ def create_ui() -> gr.Blocks:
                     with gr.Row():
                         gr.Markdown("### 🎲 オーディション（テイク聴き比べ）")
                         audition_close_btn = gr.Button("✕ 閉じる", size="sm", variant="secondary", scale=0, min_width=70)
+                    gr.Markdown("💡 *タブをクリックして切り替えるだけで、下のメインプレイヤーが自動連動して各テイクの波形確認・試聴・ループ加工ができます。*")
 
                     with gr.Tabs() as audition_tabs:
                         with gr.Tab("🎧 Take 1", id=0) as tab_take_1:
@@ -805,24 +823,46 @@ def create_ui() -> gr.Blocks:
             ],
         )
 
-        # Audition Actions (Select take to main player & target)
+        # Audition Actions: Tab selection automatically synchronizes main preview player
+        tab_take_1.select(
+            fn=lambda a: on_select_take(1, a, is_explicit_adopt=False),
+            inputs=[take_player_1],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+        tab_take_2.select(
+            fn=lambda a: on_select_take(2, a, is_explicit_adopt=False),
+            inputs=[take_player_2],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+        tab_take_3.select(
+            fn=lambda a: on_select_take(3, a, is_explicit_adopt=False),
+            inputs=[take_player_3],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+        tab_take_4.select(
+            fn=lambda a: on_select_take(4, a, is_explicit_adopt=False),
+            inputs=[take_player_4],
+            outputs=[audio_player, seed_output, status_text, history_dropdown],
+        )
+
+        # Explicit Adopt button actions
         select_take_1_btn.click(
-            fn=lambda a: on_select_take(1, a),
+            fn=lambda a: on_select_take(1, a, is_explicit_adopt=True),
             inputs=[take_player_1],
             outputs=[audio_player, seed_output, status_text, history_dropdown],
         )
         select_take_2_btn.click(
-            fn=lambda a: on_select_take(2, a),
+            fn=lambda a: on_select_take(2, a, is_explicit_adopt=True),
             inputs=[take_player_2],
             outputs=[audio_player, seed_output, status_text, history_dropdown],
         )
         select_take_3_btn.click(
-            fn=lambda a: on_select_take(3, a),
+            fn=lambda a: on_select_take(3, a, is_explicit_adopt=True),
             inputs=[take_player_3],
             outputs=[audio_player, seed_output, status_text, history_dropdown],
         )
         select_take_4_btn.click(
-            fn=lambda a: on_select_take(4, a),
+            fn=lambda a: on_select_take(4, a, is_explicit_adopt=True),
             inputs=[take_player_4],
             outputs=[audio_player, seed_output, status_text, history_dropdown],
         )
