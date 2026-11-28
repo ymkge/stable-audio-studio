@@ -5,6 +5,7 @@ import signal
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Optional, Tuple
 import gradio as gr
 
@@ -14,6 +15,20 @@ from core.presets import PRESETS, SFX_PRESETS, StylePreset
 from core.history import load_history, HistoryItem
 from core.prompt_enhancer import enhance_prompt
 from core.audio_processor import create_seamless_loop, apply_fade
+
+
+def resolve_output_path(file_path: Optional[str]) -> Optional[str]:
+    """Resolves potential temporary Gradio cache paths back to the canonical output directory path."""
+    if not file_path:
+        return None
+    p = Path(file_path)
+    # Check if a file with the same filename exists in the canonical output directory
+    canonical = config.output_dir / p.name
+    if canonical.exists():
+        return str(canonical)
+    if p.exists():
+        return str(p.resolve())
+    return file_path
 
 
 def get_history_choices() -> list:
@@ -48,7 +63,7 @@ def handle_enhance_prompt(current_prompt: str, model_id: str, current_bpm: int):
 
 def handle_create_loop(preview_path: Optional[str], history_path: Optional[str], crossfade_sec: float):
     """Creates a seamless infinite loop audio from preview or history audio."""
-    target_path = preview_path or history_path
+    target_path = resolve_output_path(preview_path) or resolve_output_path(history_path)
     if not target_path or not os.path.exists(target_path):
         return gr.update(), "⚠️ ループ加工する音源がありません。先に音源を生成するか履歴から選択してください。", gr.update()
 
@@ -62,7 +77,7 @@ def handle_create_loop(preview_path: Optional[str], history_path: Optional[str],
 
 def handle_apply_fade(preview_path: Optional[str], history_path: Optional[str], fade_in: float, fade_out: float):
     """Applies smooth S-curve fade-in and fade-out to audio."""
-    target_path = preview_path or history_path
+    target_path = resolve_output_path(preview_path) or resolve_output_path(history_path)
     if not target_path or not os.path.exists(target_path):
         return gr.update(), "⚠️ フェード加工する音源がありません。先に音源を生成するか履歴から選択してください。", gr.update()
 
@@ -242,41 +257,47 @@ def on_select_take(
     is_explicit_adopt: bool = False,
 ) -> Tuple[gr.update, gr.update, str, gr.update]:
     """Sets the chosen take as the main preview audio and processing target."""
-    if not take_audio or not os.path.exists(take_audio):
+    real_path = resolve_output_path(take_audio)
+    if not real_path or not os.path.exists(real_path):
         return gr.update(), gr.update(), "⚠️ 有効なテイク音源がありません。", gr.update()
 
     items = {item.file_path: item for item in load_history(config.output_dir)}
-    item = items.get(take_audio)
+    item = items.get(real_path)
     seed_val = item.seed if item else None
 
     if is_explicit_adopt:
         status_msg = (
-            f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(take_audio)}` "
+            f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(real_path)}` "
             f"(Seed: {seed_val})（メイン試聴＆オーディオ加工対象にセット）"
         )
     else:
         status_msg = (
-            f"🎧 **Take {take_idx} をプレビュー中:** `{os.path.basename(take_audio)}` "
+            f"🎧 **Take {take_idx} をプレビュー中:** `{os.path.basename(real_path)}` "
             f"(Seed: {seed_val})（メイン試聴＆オーディオ加工対象に自動連動）"
         )
 
+    # Safely update history_dropdown only if real_path is present in its choices
+    history_choices = [c[1] for c in get_history_choices()]
+    dropdown_update = gr.update(value=real_path) if real_path in history_choices else gr.update()
+
     return (
-        take_audio,
+        real_path,
         seed_val,
         status_msg,
-        gr.update(value=take_audio),
+        dropdown_update,
     )
 
 
 def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional[int], str]:
     """Loads selected historical audio into preview player."""
-    if not file_path or not os.path.exists(file_path):
+    real_path = resolve_output_path(file_path)
+    if not real_path or not os.path.exists(real_path):
         return None, None, ""
 
     items = {item.file_path: item for item in load_history(config.output_dir)}
-    item = items.get(file_path)
+    item = items.get(real_path)
     if not item:
-        return file_path, None, f"選択: {os.path.basename(file_path)}"
+        return real_path, None, f"選択: {os.path.basename(real_path)}"
 
     is_sfx = (item.bpm <= 0) or is_sfx_model(item.model_id)
     bpm_info = "SFX (BPMなし)" if is_sfx else f"{item.bpm} BPM"
@@ -287,7 +308,7 @@ def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional
         ref_info = f"\n> 🔄 *参考音源: {item.init_audio_filename} (アレンジ強度: {item.init_noise_level})*"
 
     return (
-        file_path,
+        real_path,
         item.seed,
         f"{icon} **履歴を読み込みました:** {item.created_at} | {bpm_info} | seed: {item.seed}\n> *{item.prompt}*{ref_info}",
     )
@@ -295,7 +316,8 @@ def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional
 
 def on_restore_settings(file_path: Optional[str]):
     """Restores parameters from selected history item back into input form."""
-    if not file_path or not os.path.exists(file_path):
+    real_path = resolve_output_path(file_path)
+    if not real_path or not os.path.exists(real_path):
         return (
             gr.update(),
             gr.update(),
@@ -312,7 +334,7 @@ def on_restore_settings(file_path: Optional[str]):
         )
 
     items = {item.file_path: item for item in load_history(config.output_dir)}
-    item = items.get(file_path)
+    item = items.get(real_path)
     if not item:
         return (
             gr.update(),
@@ -678,6 +700,7 @@ def create_ui() -> gr.Blocks:
                             choices=get_history_choices(),
                             value=None,
                             interactive=True,
+                            allow_custom_value=True,
                             scale=8,
                         )
                         refresh_history_btn = gr.Button("🔄 更新", size="sm", scale=2)
