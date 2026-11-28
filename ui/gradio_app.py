@@ -259,7 +259,7 @@ def handle_generate(
 
         return (
             status_msg,
-            gr.update(choices=new_choices, value=main_wav),
+            gr.update(choices=new_choices),
             main_wav,
             display_msg,
             take_cards[0][0], take_cards[0][1], take_cards[0][2], take_cards[0][3],
@@ -286,14 +286,11 @@ def on_adopt_take(take_idx: int, take_audio: Optional[str]):
     status_msg = f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(real_path)}` (Seed: {seed_val})"
     display_msg = f"🎵 **現在の加工対象:** Take {take_idx} (`{os.path.basename(real_path)}` / Seed: {seed_val})"
 
-    history_choices = [c[1] for c in get_history_choices()]
-    dropdown_update = gr.update(value=real_path) if real_path in history_choices else gr.update()
-
     return (
         real_path,
         display_msg,
         status_msg,
-        dropdown_update,
+        gr.update(),
     )
 
 
@@ -918,7 +915,7 @@ def create_ui() -> gr.Blocks:
         )
 
         # History Gallery Actions
-        history_dropdown.change(
+        history_dropdown.input(
             fn=on_select_history,
             inputs=[history_dropdown],
             outputs=[
