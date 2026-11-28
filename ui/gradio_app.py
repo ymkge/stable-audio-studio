@@ -61,32 +61,80 @@ def handle_enhance_prompt(current_prompt: str, model_id: str, current_bpm: int):
     return res.prompt, res.negative_prompt, bpm_update, status_msg
 
 
-def handle_create_loop(preview_path: Optional[str], history_path: Optional[str], crossfade_sec: float):
-    """Creates a seamless infinite loop audio from preview or history audio."""
-    target_path = resolve_output_path(preview_path) or resolve_output_path(history_path)
+def handle_create_loop(active_path: Optional[str], history_path: Optional[str], crossfade_sec: float):
+    """Creates a seamless infinite loop audio from active take or history audio."""
+    target_path = resolve_output_path(active_path) or resolve_output_path(history_path)
     if not target_path or not os.path.exists(target_path):
-        return gr.update(), "⚠️ ループ加工する音源がありません。先に音源を生成するか履歴から選択してください。", gr.update()
+        return (
+            gr.update(), gr.update(), gr.update(),
+            "⚠️ ループ加工する音源がありません。先に音源を生成するか履歴から選択してください。",
+            gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
+        )
 
     try:
         out_wav, msg = create_seamless_loop(target_path, crossfade_duration=float(crossfade_sec))
         new_choices = get_history_choices()
-        return out_wav, f"✅ {msg}", gr.update(choices=new_choices, value=out_wav)
+        display_msg = f"🔁 **現在の加工対象:** ループ加工音源 (`{os.path.basename(out_wav)}`)"
+        meta_str = f"🔁 **ループ加工済み** | `{os.path.basename(out_wav)}`"
+        return (
+            out_wav,      # active_audio_target
+            display_msg,  # active_target_display
+            out_wav,      # take_player_1
+            f"✅ {msg}",  # status_text
+            gr.update(choices=new_choices, value=out_wav),  # history_dropdown
+            "#### 🔁 シームレス・ループ加工音源",           # take_title_1
+            meta_str,     # take_meta_1
+            gr.update(visible=True),   # take_card_1
+            gr.update(visible=False),  # take_card_2
+            gr.update(visible=False),  # take_card_3
+            gr.update(visible=False),  # take_card_4
+        )
     except Exception as e:
-        return gr.update(), f"❌ ループ作成エラー: {str(e)}", gr.update()
+        return (
+            gr.update(), gr.update(), gr.update(),
+            f"❌ ループ作成エラー: {str(e)}",
+            gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
+        )
 
 
-def handle_apply_fade(preview_path: Optional[str], history_path: Optional[str], fade_in: float, fade_out: float):
+def handle_apply_fade(active_path: Optional[str], history_path: Optional[str], fade_in: float, fade_out: float):
     """Applies smooth S-curve fade-in and fade-out to audio."""
-    target_path = resolve_output_path(preview_path) or resolve_output_path(history_path)
+    target_path = resolve_output_path(active_path) or resolve_output_path(history_path)
     if not target_path or not os.path.exists(target_path):
-        return gr.update(), "⚠️ フェード加工する音源がありません。先に音源を生成するか履歴から選択してください。", gr.update()
+        return (
+            gr.update(), gr.update(), gr.update(),
+            "⚠️ フェード加工する音源がありません。先に音源を生成するか履歴から選択してください。",
+            gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
+        )
 
     try:
         out_wav, msg = apply_fade(target_path, fade_in_sec=float(fade_in), fade_out_sec=float(fade_out))
         new_choices = get_history_choices()
-        return out_wav, f"✅ {msg}", gr.update(choices=new_choices, value=out_wav)
+        display_msg = f"🌊 **現在の加工対象:** フェード加工音源 (`{os.path.basename(out_wav)}`)"
+        meta_str = f"🌊 **フェード加工済み** | `{os.path.basename(out_wav)}`"
+        return (
+            out_wav,      # active_audio_target
+            display_msg,  # active_target_display
+            out_wav,      # take_player_1
+            f"✅ {msg}",  # status_text
+            gr.update(choices=new_choices, value=out_wav),  # history_dropdown
+            "#### 🌊 フェード加工音源",                     # take_title_1
+            meta_str,     # take_meta_1
+            gr.update(visible=True),   # take_card_1
+            gr.update(visible=False),  # take_card_2
+            gr.update(visible=False),  # take_card_3
+            gr.update(visible=False),  # take_card_4
+        )
     except Exception as e:
-        return gr.update(), f"❌ フェード加工エラー: {str(e)}", gr.update()
+        return (
+            gr.update(), gr.update(), gr.update(),
+            f"❌ フェード加工エラー: {str(e)}",
+            gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
+        )
 
 
 def get_duration_slider_update(model_id: str, current_duration: int) -> gr.update:
@@ -148,33 +196,19 @@ def handle_generate(
     init_noise_level: float = 0.6,
     num_takes: int = 1,
     progress=gr.Progress(track_tqdm=True),
-) -> Tuple[
-    Optional[str],
-    Optional[int],
-    str,
-    gr.update,
-    gr.update,
-    Optional[str],
-    str,
-    Optional[str],
-    str,
-    Optional[str],
-    str,
-    Optional[str],
-    str,
-    gr.update,
-]:
-    """Generates audio (single or multiple takes) and updates UI & audition slots."""
-    empty_audition = (
-        gr.update(visible=False),
-        None, "",
-        None, "",
-        None, "",
-        None, "",
-        gr.update(),
+):
+    """Generates audio (single or multiple takes) and displays them in a vertical feed."""
+    empty_feed = (
+        gr.update(),  # history_dropdown
+        None,         # active_audio_target
+        "",           # active_target_display
+        gr.update(visible=False), "", None, "",  # card 1
+        gr.update(visible=False), "", None, "",  # card 2
+        gr.update(visible=False), "", None, "",  # card 3
+        gr.update(visible=False), "", None, "",  # card 4
     )
     if not prompt or not prompt.strip():
-        return (None, None, "⚠️ プロンプトを入力してください。", gr.update(), *empty_audition)
+        return ("⚠️ プロンプトを入力してください。", *empty_feed)
 
     actual_seed = None if random_seed else int(seed_input)
     safe_bpm = int(bpm) if bpm is not None else 0
@@ -206,57 +240,41 @@ def handle_generate(
         total_gen = len(results)
 
         main_wav, main_seed = results[0]
+        status_msg = (
+            f"✅ 生成完了{mode_tag}: {os.path.basename(main_wav)}"
+            if total_gen == 1
+            else f"✅ 一括生成完了 ({total_gen}テイク){mode_tag}: 下のリストで各テイクを試聴・比較できます。"
+        )
+        display_msg = f"🎵 **現在の加工対象:** Take 1 (`{os.path.basename(main_wav)}` / Seed: {main_seed})"
 
-        if total_gen == 1:
-            status_msg = f"✅ 生成完了{mode_tag}: {os.path.basename(main_wav)}"
-            return (
-                main_wav,
-                main_seed,
-                status_msg,
-                gr.update(choices=new_choices, value=main_wav),
-                gr.update(visible=False),
-                None, "",
-                None, "",
-                None, "",
-                None, "",
-                gr.update(),
-            )
-        else:
-            status_msg = (
-                f"✅ 一括生成完了 ({total_gen}テイク){mode_tag}: "
-                f"右上の「🎲 オーディション」で各タブを切り替えると、プレビュープレイヤーが自動連動してスムーズに聴き比べできます。"
-            )
-            take_players = [None, None, None, None]
-            take_infos = ["", "", "", ""]
-            for i, (w_path, s_val) in enumerate(results):
-                if i < 4:
-                    take_players[i] = w_path
-                    take_infos[i] = f"**Take {i+1}** | Seed: `{s_val}` | ファイル: `{os.path.basename(w_path)}`"
+        take_cards = []
+        for i in range(4):
+            if i < total_gen:
+                w_path, s_val = results[i]
+                title = "#### 🎵 生成音源 (Preview)" if total_gen == 1 else f"#### 🎧 Take {i+1}"
+                meta = f"**Take {i+1}** | Seed: `{s_val}` | `{os.path.basename(w_path)}`"
+                take_cards.append((gr.update(visible=True), title, w_path, meta))
+            else:
+                take_cards.append((gr.update(visible=False), "", None, ""))
 
-            return (
-                main_wav,
-                main_seed,
-                status_msg,
-                gr.update(choices=new_choices, value=main_wav),
-                gr.update(visible=True),
-                take_players[0], take_infos[0],
-                take_players[1], take_infos[1],
-                take_players[2], take_infos[2],
-                take_players[3], take_infos[3],
-                gr.update(selected=0),
-            )
+        return (
+            status_msg,
+            gr.update(choices=new_choices, value=main_wav),
+            main_wav,
+            display_msg,
+            take_cards[0][0], take_cards[0][1], take_cards[0][2], take_cards[0][3],
+            take_cards[1][0], take_cards[1][1], take_cards[1][2], take_cards[1][3],
+            take_cards[2][0], take_cards[2][1], take_cards[2][2], take_cards[2][3],
+            take_cards[3][0], take_cards[3][1], take_cards[3][2], take_cards[3][3],
+        )
     except ModelLoadError as e:
-        return (None, None, f"❌ モデルエラー:\n{str(e)}", gr.update(), *empty_audition)
+        return (f"❌ モデルエラー:\n{str(e)}", *empty_feed)
     except Exception as e:
-        return (None, None, f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}", gr.update(), *empty_audition)
+        return (f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}", *empty_feed)
 
 
-def on_select_take(
-    take_idx: int,
-    take_audio: Optional[str],
-    is_explicit_adopt: bool = False,
-) -> Tuple[gr.update, gr.update, str, gr.update]:
-    """Sets the chosen take as the main preview audio and processing target."""
+def on_adopt_take(take_idx: int, take_audio: Optional[str]):
+    """Selects the designated take as the active target for post-processing and history."""
     real_path = resolve_output_path(take_audio)
     if not real_path or not os.path.exists(real_path):
         return gr.update(), gr.update(), "⚠️ 有効なテイク音源がありません。", gr.update()
@@ -265,39 +283,39 @@ def on_select_take(
     item = items.get(real_path)
     seed_val = item.seed if item else None
 
-    if is_explicit_adopt:
-        status_msg = (
-            f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(real_path)}` "
-            f"(Seed: {seed_val})（メイン試聴＆オーディオ加工対象にセット）"
-        )
-    else:
-        status_msg = (
-            f"🎧 **Take {take_idx} をプレビュー中:** `{os.path.basename(real_path)}` "
-            f"(Seed: {seed_val})（メイン試聴＆オーディオ加工対象に自動連動）"
-        )
+    status_msg = f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(real_path)}` (Seed: {seed_val})"
+    display_msg = f"🎵 **現在の加工対象:** Take {take_idx} (`{os.path.basename(real_path)}` / Seed: {seed_val})"
 
-    # Safely update history_dropdown only if real_path is present in its choices
     history_choices = [c[1] for c in get_history_choices()]
     dropdown_update = gr.update(value=real_path) if real_path in history_choices else gr.update()
 
     return (
         real_path,
-        seed_val,
+        display_msg,
         status_msg,
         dropdown_update,
     )
 
 
-def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional[int], str]:
-    """Loads selected historical audio into preview player."""
+def on_select_history(file_path: Optional[str]):
+    """Loads selected historical audio into preview feed."""
     real_path = resolve_output_path(file_path)
     if not real_path or not os.path.exists(real_path):
-        return None, None, ""
+        return (
+            "", gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(),
+        )
 
     items = {item.file_path: item for item in load_history(config.output_dir)}
     item = items.get(real_path)
     if not item:
-        return real_path, None, f"選択: {os.path.basename(real_path)}"
+        return (
+            f"選択: {os.path.basename(real_path)}", real_path,
+            f"🎵 **現在の加工対象:** 履歴音源 (`{os.path.basename(real_path)}`)",
+            gr.update(visible=True), "#### 📜 選択された履歴音源", real_path, f"`{os.path.basename(real_path)}`",
+            gr.update(visible=False), gr.update(visible=False), gr.update(visible=False),
+        )
 
     is_sfx = (item.bpm <= 0) or is_sfx_model(item.model_id)
     bpm_info = "SFX (BPMなし)" if is_sfx else f"{item.bpm} BPM"
@@ -307,10 +325,21 @@ def on_select_history(file_path: Optional[str]) -> Tuple[Optional[str], Optional
     if getattr(item, "init_audio_filename", None):
         ref_info = f"\n> 🔄 *参考音源: {item.init_audio_filename} (アレンジ強度: {item.init_noise_level})*"
 
+    meta_str = f"{icon} **履歴音源** | {item.created_at} | {bpm_info} | Seed: `{item.seed}`\n> *{item.prompt}*{ref_info}"
+    status_msg = f"{icon} **履歴を読み込みました:** {item.created_at} | {bpm_info} | seed: {item.seed}"
+    display_msg = f"🎵 **現在の加工対象:** 履歴音源 (`{os.path.basename(real_path)}`)"
+
     return (
+        status_msg,
         real_path,
-        item.seed,
-        f"{icon} **履歴を読み込みました:** {item.created_at} | {bpm_info} | seed: {item.seed}\n> *{item.prompt}*{ref_info}",
+        display_msg,
+        gr.update(visible=True),
+        "#### 📜 選択された履歴音源",
+        real_path,
+        meta_str,
+        gr.update(visible=False),
+        gr.update(visible=False),
+        gr.update(visible=False),
     )
 
 
@@ -452,6 +481,13 @@ CUSTOM_CSS = """
     justify-content: space-between;
     margin-top: 8px;
     margin-bottom: -4px;
+}
+.take-card {
+    border: 1px solid rgba(128, 128, 128, 0.2);
+    background: rgba(128, 128, 128, 0.05);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
 }
 """
 
@@ -620,46 +656,53 @@ def create_ui() -> gr.Blocks:
 
                 generate_btn = gr.Button("🎼 音楽を生成する (Mediumモデル)", variant="primary", size="lg")
 
-            # Right Column: Outputs & DAW Integration
+            # Right Column: Outputs & Audition Feed (Suno-style vertical list)
             with gr.Column(scale=5):
-                # Multi-Take Audition Section (Visible when 2+ takes generated)
-                with gr.Group(visible=False) as audition_group:
-                    with gr.Row():
-                        gr.Markdown("### 🎲 オーディション（テイク聴き比べ）")
-                        audition_close_btn = gr.Button("✕ 閉じる", size="sm", variant="secondary", scale=0, min_width=70)
-                    gr.Markdown("💡 *タブをクリックして切り替えるだけで、下のメインプレイヤーが自動連動して各テイクの波形確認・試聴・ループ加工ができます。*")
-
-                    with gr.Tabs() as audition_tabs:
-                        with gr.Tab("🎧 Take 1", id=0) as tab_take_1:
-                            take_player_1 = gr.Audio(label="Take 1 音源", type="filepath")
-                            take_info_1 = gr.Markdown("")
-                            select_take_1_btn = gr.Button("⭐ Take 1 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
-
-                        with gr.Tab("🎧 Take 2", id=1) as tab_take_2:
-                            take_player_2 = gr.Audio(label="Take 2 音源", type="filepath")
-                            take_info_2 = gr.Markdown("")
-                            select_take_2_btn = gr.Button("⭐ Take 2 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
-
-                        with gr.Tab("🎧 Take 3", id=2) as tab_take_3:
-                            take_player_3 = gr.Audio(label="Take 3 音源", type="filepath")
-                            take_info_3 = gr.Markdown("")
-                            select_take_3_btn = gr.Button("⭐ Take 3 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
-
-                        with gr.Tab("🎧 Take 4", id=3) as tab_take_4:
-                            take_player_4 = gr.Audio(label="Take 4 音源", type="filepath")
-                            take_info_4 = gr.Markdown("")
-                            select_take_4_btn = gr.Button("⭐ Take 4 をメインに採用（試聴・加工対象にセット）", variant="primary", size="sm")
-
-                audio_player = gr.Audio(label="生成された音楽 (Preview)", type="filepath")
-                seed_output = gr.Number(label="使用されたシード値 (Used Seed)", precision=0, interactive=False)
                 status_text = gr.Markdown("")
-
                 with gr.Row():
                     open_finder_btn = gr.Button("📁 保存先フォルダを開く (Finder)", variant="secondary")
 
+                # Hidden state holding active target audio for processing
+                active_audio_target = gr.Textbox(visible=False)
+
+                gr.Markdown("### 🎲 生成テイク一覧 (Audition Feed)")
+                gr.Markdown("💡 *各テイクの波形プレイヤーで直接試聴・比較できます。「⭐ このテイクを採用」を押すと直下のオーディオ加工（ループ＆フェード）の対象にセットされます。*")
+
+                # Take 1 Card
+                with gr.Group(visible=True, elem_classes=["take-card"]) as take_card_1:
+                    with gr.Row():
+                        take_title_1 = gr.Markdown("#### 🎧 Take 1")
+                        select_take_1_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
+                    take_player_1 = gr.Audio(label="", type="filepath")
+                    take_meta_1 = gr.Markdown("（音源を生成するとここに表示されます）")
+
+                # Take 2 Card
+                with gr.Group(visible=False, elem_classes=["take-card"]) as take_card_2:
+                    with gr.Row():
+                        take_title_2 = gr.Markdown("#### 🎧 Take 2")
+                        select_take_2_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
+                    take_player_2 = gr.Audio(label="", type="filepath")
+                    take_meta_2 = gr.Markdown("")
+
+                # Take 3 Card
+                with gr.Group(visible=False, elem_classes=["take-card"]) as take_card_3:
+                    with gr.Row():
+                        take_title_3 = gr.Markdown("#### 🎧 Take 3")
+                        select_take_3_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
+                    take_player_3 = gr.Audio(label="", type="filepath")
+                    take_meta_3 = gr.Markdown("")
+
+                # Take 4 Card
+                with gr.Group(visible=False, elem_classes=["take-card"]) as take_card_4:
+                    with gr.Row():
+                        take_title_4 = gr.Markdown("#### 🎧 Take 4")
+                        select_take_4_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
+                    take_player_4 = gr.Audio(label="", type="filepath")
+                    take_meta_4 = gr.Markdown("")
+
                 # Audio Post-Processing (Seamless Loop & Fade)
                 with gr.Accordion("🔁 オーディオ加工・ループ＆フェード (Post-Processing)", open=False) as processor_accordion:
-                    gr.Markdown("💡 *プレビュー中または履歴選択中の音源に対して、シームレスループ化やフェード処理を適用して別名保存します。*")
+                    active_target_display = gr.Markdown("💡 *現在選択中の音源（デフォルト: Take 1）に対して、シームレスループ化やフェード処理を適用して別名保存します。*")
                     with gr.Tabs():
                         with gr.Tab("🔁 シームレス・ループ作成"):
                             gr.Markdown("末尾と先頭を等電力クロスフェードで滑らかに繋ぎ、何度リピート再生しても継ぎ目のない永久ループWAVを作成します。")
@@ -811,7 +854,7 @@ def create_ui() -> gr.Blocks:
             outputs=[init_audio, status_text],
         )
 
-        # Generate action (Single or Multi-Take Audition)
+        # Generate action (Single or Multi-Take Audition Feed)
         generate_btn.click(
             fn=handle_generate,
             inputs=[
@@ -829,79 +872,67 @@ def create_ui() -> gr.Blocks:
                 num_takes,
             ],
             outputs=[
-                audio_player,
-                seed_output,
                 status_text,
                 history_dropdown,
-                audition_group,
+                active_audio_target,
+                active_target_display,
+                take_card_1,
+                take_title_1,
                 take_player_1,
-                take_info_1,
+                take_meta_1,
+                take_card_2,
+                take_title_2,
                 take_player_2,
-                take_info_2,
+                take_meta_2,
+                take_card_3,
+                take_title_3,
                 take_player_3,
-                take_info_3,
+                take_meta_3,
+                take_card_4,
+                take_title_4,
                 take_player_4,
-                take_info_4,
-                audition_tabs,
+                take_meta_4,
             ],
         )
 
-        # Audition Actions: Tab selection automatically synchronizes main preview player
-        tab_take_1.select(
-            fn=lambda a: on_select_take(1, a, is_explicit_adopt=False),
-            inputs=[take_player_1],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
-        )
-        tab_take_2.select(
-            fn=lambda a: on_select_take(2, a, is_explicit_adopt=False),
-            inputs=[take_player_2],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
-        )
-        tab_take_3.select(
-            fn=lambda a: on_select_take(3, a, is_explicit_adopt=False),
-            inputs=[take_player_3],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
-        )
-        tab_take_4.select(
-            fn=lambda a: on_select_take(4, a, is_explicit_adopt=False),
-            inputs=[take_player_4],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
-        )
-
-        # Explicit Adopt button actions
+        # Adopt Take button actions
         select_take_1_btn.click(
-            fn=lambda a: on_select_take(1, a, is_explicit_adopt=True),
+            fn=lambda a: on_adopt_take(1, a),
             inputs=[take_player_1],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
+            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
         )
         select_take_2_btn.click(
-            fn=lambda a: on_select_take(2, a, is_explicit_adopt=True),
+            fn=lambda a: on_adopt_take(2, a),
             inputs=[take_player_2],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
+            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
         )
         select_take_3_btn.click(
-            fn=lambda a: on_select_take(3, a, is_explicit_adopt=True),
+            fn=lambda a: on_adopt_take(3, a),
             inputs=[take_player_3],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
+            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
         )
         select_take_4_btn.click(
-            fn=lambda a: on_select_take(4, a, is_explicit_adopt=True),
+            fn=lambda a: on_adopt_take(4, a),
             inputs=[take_player_4],
-            outputs=[audio_player, seed_output, status_text, history_dropdown],
-        )
-
-        # Close audition section
-        audition_close_btn.click(
-            fn=lambda: gr.update(visible=False),
-            inputs=[],
-            outputs=[audition_group],
+            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
         )
 
         # History Gallery Actions
         history_dropdown.change(
             fn=on_select_history,
             inputs=[history_dropdown],
-            outputs=[audio_player, seed_output, status_text],
+            outputs=[
+                status_text,
+                active_audio_target,
+                active_target_display,
+                take_card_1,
+                take_title_1,
+                take_player_1,
+                take_meta_1,
+                take_card_2,
+                take_card_3,
+                take_card_4,
+            ],
         )
 
         restore_btn.click(
@@ -953,14 +984,38 @@ def create_ui() -> gr.Blocks:
         # Post-Processing actions (Seamless Loop & Fade)
         create_loop_btn.click(
             fn=handle_create_loop,
-            inputs=[audio_player, history_dropdown, crossfade_slider],
-            outputs=[audio_player, status_text, history_dropdown],
+            inputs=[active_audio_target, history_dropdown, crossfade_slider],
+            outputs=[
+                active_audio_target,
+                active_target_display,
+                take_player_1,
+                status_text,
+                history_dropdown,
+                take_title_1,
+                take_meta_1,
+                take_card_1,
+                take_card_2,
+                take_card_3,
+                take_card_4,
+            ],
         )
 
         apply_fade_btn.click(
             fn=handle_apply_fade,
-            inputs=[audio_player, history_dropdown, fade_in_slider, fade_out_slider],
-            outputs=[audio_player, status_text, history_dropdown],
+            inputs=[active_audio_target, history_dropdown, fade_in_slider, fade_out_slider],
+            outputs=[
+                active_audio_target,
+                active_target_display,
+                take_player_1,
+                status_text,
+                history_dropdown,
+                take_title_1,
+                take_meta_1,
+                take_card_1,
+                take_card_2,
+                take_card_3,
+                take_card_4,
+            ],
         )
 
         # Shutdown Javascript Confirmation UX
