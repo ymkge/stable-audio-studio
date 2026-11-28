@@ -31,6 +31,54 @@ def resolve_output_path(file_path: Optional[str]) -> Optional[str]:
     return file_path
 
 
+def find_history_item(file_path: Optional[str]) -> Optional[HistoryItem]:
+    """Finds HistoryItem by canonical path or filename fallback."""
+    if not file_path:
+        return None
+    canonical = resolve_output_path(file_path) or file_path
+    items = load_history(config.output_dir)
+    target_name = Path(canonical).name
+    for it in items:
+        if it.file_path == canonical or it.filename == target_name or Path(it.file_path).name == target_name:
+            return it
+    return None
+
+
+def build_take_cards_dict(cards_list, takes_data, active_idx: int = 0):
+    """Constructs dictionary updates for the 4 vertical take cards."""
+    updates = {}
+    total = len(takes_data)
+    for i in range(4):
+        c = cards_list[i]
+        if i < total:
+            td = takes_data[i]
+            is_active = (i == active_idx)
+            classes = ["take-card", "active-take"] if is_active else ["take-card"]
+            if td.get("custom_title"):
+                title_val = td["custom_title"]
+            elif total == 1:
+                title_val = "#### 🎵 生成音源 🌟 採用中" if is_active else "#### 🎵 生成音源"
+            else:
+                title_val = f"#### 🎧 Take {i+1} 🌟 採用中" if is_active else f"#### 🎧 Take {i+1}"
+
+            btn_label = "✅ 採用中 (加工対象)" if is_active else "⭐ このテイクを採用"
+            btn_variant = "secondary" if is_active else "primary"
+            btn_interactive = not is_active
+
+            updates[c["card"]] = gr.update(visible=True, elem_classes=classes)
+            updates[c["title"]] = gr.update(value=title_val)
+            updates[c["btn"]] = gr.update(value=btn_label, variant=btn_variant, interactive=btn_interactive)
+            updates[c["player"]] = td["path"]
+            updates[c["meta"]] = gr.update(value=td.get("meta", ""))
+        else:
+            updates[c["card"]] = gr.update(visible=False, elem_classes=["take-card"])
+            updates[c["title"]] = gr.update(value="")
+            updates[c["btn"]] = gr.update(value="⭐ このテイクを採用", variant="primary", interactive=False)
+            updates[c["player"]] = None
+            updates[c["meta"]] = gr.update(value="")
+    return updates
+
+
 def get_history_choices() -> list:
     """Returns a list of (display_label, file_path) for Gradio Dropdown."""
     items = load_history(config.output_dir)
@@ -340,7 +388,7 @@ def on_select_history(file_path: Optional[str]):
     )
 
 
-def on_restore_settings(file_path: Optional[str]):
+def on_restore_settings(file_path: Optional[str], num_takes: int = 1):
     """Restores parameters from selected history item back into input form."""
     real_path = resolve_output_path(file_path)
     if not real_path or not os.path.exists(real_path):
@@ -359,8 +407,7 @@ def on_restore_settings(file_path: Optional[str]):
             "⚠️ 復元する音源を生成履歴から選択してください。",
         )
 
-    items = {item.file_path: item for item in load_history(config.output_dir)}
-    item = items.get(real_path)
+    item = find_history_item(real_path)
     if not item:
         return (
             gr.update(),
@@ -378,10 +425,11 @@ def on_restore_settings(file_path: Optional[str]):
         )
 
     is_sfx = (item.bpm <= 0) or is_sfx_model(item.model_id)
+    safe_takes = max(1, min(int(num_takes or 1), config.max_takes))
     if is_sfx:
         bpm_update = gr.update(value=config.default_bpm, visible=False)
-        btn_update = gr.update(value="🍃 効果音を生成する (Small SFXモデル)")
         model_val = item.model_id if item.model_id in config.available_models else config.sfx_model_id
+        btn_update = gr.update(value=get_generate_btn_label(safe_takes, model_val))
         dur_update = gr.update(
             maximum=config.sfx_max_duration,
             value=min(item.duration, config.sfx_max_duration),
@@ -391,8 +439,8 @@ def on_restore_settings(file_path: Optional[str]):
     else:
         bpm_val = item.bpm if item.bpm >= config.min_bpm else config.default_bpm
         bpm_update = gr.update(value=bpm_val, visible=True)
-        btn_update = gr.update(value="🎼 音楽を生成する (Mediumモデル)")
         model_val = item.model_id if item.model_id in config.available_models else config.model_id
+        btn_update = gr.update(value=get_generate_btn_label(safe_takes, model_val))
         dur_update = gr.update(
             maximum=config.max_duration,
             value=min(item.duration, config.max_duration),
@@ -480,11 +528,33 @@ CUSTOM_CSS = """
     margin-bottom: -4px;
 }
 .take-card {
-    border: 1px solid rgba(128, 128, 128, 0.2);
+    border: 1px solid rgba(128, 128, 128, 0.25);
     background: rgba(128, 128, 128, 0.05);
     border-radius: 10px;
     padding: 12px 14px;
     margin-bottom: 14px;
+    transition: all 0.2s ease-in-out;
+}
+.take-card.active-take {
+    border: 2px solid #6366f1 !important;
+    background: rgba(99, 102, 241, 0.08) !important;
+    box-shadow: 0 0 16px rgba(99, 102, 241, 0.25) !important;
+}
+.take-card.active-take button[disabled] {
+    opacity: 1 !important;
+    filter: none !important;
+    cursor: default !important;
+    background: #059669 !important;
+    color: #ffffff !important;
+    border: 1px solid #10b981 !important;
+    font-weight: 600 !important;
+}
+.active-take-banner {
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
 }
 """
 
@@ -662,39 +732,45 @@ def create_ui() -> gr.Blocks:
                 # Hidden state holding active target audio for processing
                 active_audio_target = gr.Textbox(visible=False)
 
+                # Persistent banner showing currently adopted audio
+                active_take_indicator = gr.Markdown(
+                    "💡 *音源を生成すると、ここに採用中の音源情報が表示されます。*",
+                    elem_classes=["active-take-banner"],
+                )
+
                 gr.Markdown("### 🎲 生成テイク一覧 (Audition Feed)")
                 gr.Markdown("💡 *各テイクの波形プレイヤーで直接試聴・比較できます。「⭐ このテイクを採用」を押すと直下のオーディオ加工（ループ＆フェード）の対象にセットされます。*")
 
                 # Take 1 Card
-                with gr.Group(visible=True, elem_classes=["take-card"]) as take_card_1:
+                with gr.Column(visible=True, elem_classes=["take-card"]) as take_card_1:
                     with gr.Row():
-                        take_title_1 = gr.Markdown("#### 🎧 Take 1")
-                        select_take_1_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
-                    take_player_1 = gr.Audio(label="", type="filepath")
+                        take_title_1 = gr.Markdown("#### 🎧 Take 1", scale=7)
+                        select_take_1_btn = gr.Button("⭐ このテイクを採用", variant="primary", size="sm", interactive=False, scale=3, min_width=140)
+                    take_player_1 = gr.Audio(label="", type="filepath", interactive=False)
                     take_meta_1 = gr.Markdown("（音源を生成するとここに表示されます）")
 
                 # Take 2 Card
-                with gr.Group(visible=False, elem_classes=["take-card"]) as take_card_2:
+                with gr.Column(visible=False, elem_classes=["take-card"]) as take_card_2:
                     with gr.Row():
-                        take_title_2 = gr.Markdown("#### 🎧 Take 2")
-                        select_take_2_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
-                    take_player_2 = gr.Audio(label="", type="filepath")
+                        take_title_2 = gr.Markdown("#### 🎧 Take 2", scale=7)
+                        select_take_2_btn = gr.Button("⭐ このテイクを採用", variant="primary", size="sm", interactive=False, scale=3, min_width=140)
+                    take_player_2 = gr.Audio(label="", type="filepath", interactive=False)
                     take_meta_2 = gr.Markdown("")
 
                 # Take 3 Card
-                with gr.Group(visible=False, elem_classes=["take-card"]) as take_card_3:
+                with gr.Column(visible=False, elem_classes=["take-card"]) as take_card_3:
                     with gr.Row():
-                        take_title_3 = gr.Markdown("#### 🎧 Take 3")
-                        select_take_3_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
-                    take_player_3 = gr.Audio(label="", type="filepath")
+                        take_title_3 = gr.Markdown("#### 🎧 Take 3", scale=7)
+                        select_take_3_btn = gr.Button("⭐ このテイクを採用", variant="primary", size="sm", interactive=False, scale=3, min_width=140)
+                    take_player_3 = gr.Audio(label="", type="filepath", interactive=False)
                     take_meta_3 = gr.Markdown("")
 
                 # Take 4 Card
-                with gr.Group(visible=False, elem_classes=["take-card"]) as take_card_4:
+                with gr.Column(visible=False, elem_classes=["take-card"]) as take_card_4:
                     with gr.Row():
-                        take_title_4 = gr.Markdown("#### 🎧 Take 4")
-                        select_take_4_btn = gr.Button("⭐ このテイクを採用（加工対象にセット）", variant="primary", size="sm")
-                    take_player_4 = gr.Audio(label="", type="filepath")
+                        take_title_4 = gr.Markdown("#### 🎧 Take 4", scale=7)
+                        select_take_4_btn = gr.Button("⭐ このテイクを採用", variant="primary", size="sm", interactive=False, scale=3, min_width=140)
+                    take_player_4 = gr.Audio(label="", type="filepath", interactive=False)
                     take_meta_4 = gr.Markdown("")
 
                 # Audio Post-Processing (Seamless Loop & Fade)
@@ -851,9 +927,260 @@ def create_ui() -> gr.Blocks:
             outputs=[init_audio, status_text],
         )
 
+        # Audition Feed common output targets
+        audition_feed_outputs = [
+            status_text,
+            active_take_indicator,
+            active_audio_target,
+            active_target_display,
+            processor_accordion,
+            history_dropdown,
+            take_card_1, take_title_1, select_take_1_btn, take_player_1, take_meta_1,
+            take_card_2, take_title_2, select_take_2_btn, take_player_2, take_meta_2,
+            take_card_3, take_title_3, select_take_3_btn, take_player_3, take_meta_3,
+            take_card_4, take_title_4, select_take_4_btn, take_player_4, take_meta_4,
+        ]
+
+        cards_list = [
+            {"card": take_card_1, "title": take_title_1, "btn": select_take_1_btn, "player": take_player_1, "meta": take_meta_1},
+            {"card": take_card_2, "title": take_title_2, "btn": select_take_2_btn, "player": take_player_2, "meta": take_meta_2},
+            {"card": take_card_3, "title": take_title_3, "btn": select_take_3_btn, "player": take_player_3, "meta": take_meta_3},
+            {"card": take_card_4, "title": take_title_4, "btn": select_take_4_btn, "player": take_player_4, "meta": take_meta_4},
+        ]
+
+        # Inner UI event handlers
+        def inner_handle_generate(
+            prompt_val, neg_prompt_val, bpm_val, dur_val, steps_val, cfg_val,
+            is_random, seed_val, model_val, init_aud, init_noise, takes_val,
+            progress=gr.Progress(track_tqdm=True),
+        ):
+            if not prompt_val or not prompt_val.strip():
+                return {status_text: "⚠️ プロンプトを入力してください。"}
+
+            actual_seed = None if is_random else int(seed_val)
+            safe_bpm = int(bpm_val) if bpm_val is not None else 0
+            safe_takes = max(1, min(int(takes_val), config.max_takes))
+
+            try:
+                def prog_callback(cur_take: int, total: int, msg: str):
+                    ratio = (cur_take - 1) / max(total, 1)
+                    progress(ratio, desc=msg)
+
+                results = generator.generate_takes(
+                    prompt=prompt_val,
+                    negative_prompt=neg_prompt_val,
+                    bpm=safe_bpm,
+                    duration=int(dur_val),
+                    steps=int(steps_val),
+                    cfg_scale=float(cfg_val),
+                    seed=actual_seed,
+                    model_id=model_val,
+                    init_audio_path=init_aud,
+                    init_noise_level=float(init_noise) if init_noise else 0.6,
+                    num_takes=safe_takes,
+                    progress_callback=prog_callback,
+                )
+
+                progress(1.0, desc="生成完了！")
+                new_choices = get_history_choices()
+                mode_tag = " (Audio-to-Audio)" if init_aud else ""
+                total_gen = len(results)
+
+                main_wav, main_seed = results[0]
+                status_msg = (
+                    f"✅ 生成完了{mode_tag}: {os.path.basename(main_wav)}"
+                    if total_gen == 1
+                    else f"✅ 一括生成完了 ({total_gen}テイク){mode_tag}: 下のリストで各テイクを試聴・比較できます。"
+                )
+
+                takes_data = []
+                for i, (w_path, s_val) in enumerate(results):
+                    meta_str = f"**Take {i+1}** | Seed: `{s_val}` | `{os.path.basename(w_path)}`"
+                    takes_data.append({"path": w_path, "seed": s_val, "meta": meta_str})
+
+                cards_updates = build_take_cards_dict(cards_list, takes_data, active_idx=0)
+
+                banner_label = "生成音源" if total_gen == 1 else "Take 1"
+                banner_msg = (
+                    f"🌟 **現在採用中:** {banner_label} (`{os.path.basename(main_wav)}` | Seed: `{main_seed}`) "
+                    f"— 直下のオーディオ加工（ループ＆フェード）の対象にセットされています"
+                )
+                display_msg = f"🎵 **現在の加工対象:** {banner_label} (`{os.path.basename(main_wav)}` / Seed: {main_seed})"
+
+                return {
+                    status_text: status_msg,
+                    active_take_indicator: banner_msg,
+                    active_audio_target: main_wav,
+                    active_target_display: display_msg,
+                    processor_accordion: gr.update(open=False),
+                    history_dropdown: gr.update(choices=new_choices, value=None),
+                    **cards_updates,
+                }
+            except ModelLoadError as e:
+                return {status_text: f"❌ モデルエラー:\n{str(e)}"}
+            except Exception as e:
+                return {status_text: f"❌ 生成中に予期せぬエラーが発生しました: {str(e)}"}
+
+        def inner_on_adopt_take(take_idx: int, p1, p2, p3, p4):
+            paths = [p1, p2, p3, p4]
+            target_p = paths[take_idx - 1]
+            real_path = resolve_output_path(target_p)
+            if not real_path or not os.path.exists(real_path):
+                return {status_text: "⚠️ 有効なテイク音源がありません。"}
+
+            item = find_history_item(real_path)
+            seed_val = item.seed if item else "-"
+
+            gr.Info(f"⭐ Take {take_idx} を採用しました！直下のオーディオ加工にセットされました。")
+
+            takes_data = []
+            for i, p in enumerate(paths):
+                if p:
+                    it_i = find_history_item(p)
+                    s_i = it_i.seed if it_i else "-"
+                    takes_data.append({
+                        "path": p,
+                        "seed": s_i,
+                        "meta": f"**Take {i+1}** | Seed: `{s_i}` | `{os.path.basename(p)}`",
+                    })
+
+            cards_updates = build_take_cards_dict(cards_list, takes_data, active_idx=take_idx - 1)
+            banner_msg = (
+                f"🌟 **現在採用中:** Take {take_idx} (`{os.path.basename(real_path)}` | Seed: `{seed_val}`) "
+                f"— 直下のオーディオ加工（ループ＆フェード）の対象にセットされています"
+            )
+            display_msg = f"🎵 **現在の加工対象:** Take {take_idx} (`{os.path.basename(real_path)}` / Seed: {seed_val})"
+            status_msg = f"⭐ **Take {take_idx} を採用しました:** `{os.path.basename(real_path)}` (Seed: {seed_val})"
+
+            return {
+                status_text: status_msg,
+                active_take_indicator: banner_msg,
+                active_audio_target: real_path,
+                active_target_display: display_msg,
+                processor_accordion: gr.update(open=True),
+                **cards_updates,
+            }
+
+        def inner_on_create_loop(active_path, hist_path, crossfade_sec):
+            target_path = resolve_output_path(active_path) or resolve_output_path(hist_path)
+            if not target_path or not os.path.exists(target_path):
+                return {status_text: "⚠️ ループ加工する音源がありません。先に音源を生成するか履歴から選択してください。"}
+
+            try:
+                out_wav, msg = create_seamless_loop(target_path, crossfade_duration=float(crossfade_sec))
+                new_choices = get_history_choices()
+                takes_data = [{
+                    "path": out_wav,
+                    "seed": "-",
+                    "custom_title": "#### 🔁 シームレス・ループ加工音源",
+                    "meta": f"🔁 **ループ加工済み** | `{os.path.basename(out_wav)}`",
+                }]
+                cards_updates = build_take_cards_dict(cards_list, takes_data, active_idx=0)
+                banner_msg = f"🔁 **現在採用中:** ループ加工音源 (`{os.path.basename(out_wav)}`)"
+                display_msg = f"🔁 **現在の加工対象:** ループ加工音源 (`{os.path.basename(out_wav)}`)"
+
+                return {
+                    status_text: f"✅ {msg}",
+                    active_take_indicator: banner_msg,
+                    active_audio_target: out_wav,
+                    active_target_display: display_msg,
+                    processor_accordion: gr.update(open=True),
+                    history_dropdown: gr.update(choices=new_choices, value=out_wav),
+                    **cards_updates,
+                }
+            except Exception as e:
+                return {status_text: f"❌ ループ作成エラー: {str(e)}"}
+
+        def inner_on_apply_fade(active_path, hist_path, fade_in, fade_out):
+            target_path = resolve_output_path(active_path) or resolve_output_path(hist_path)
+            if not target_path or not os.path.exists(target_path):
+                return {status_text: "⚠️ フェード加工する音源がありません。先に音源を生成するか履歴から選択してください。"}
+
+            try:
+                out_wav, msg = apply_fade(target_path, fade_in_sec=float(fade_in), fade_out_sec=float(fade_out))
+                new_choices = get_history_choices()
+                takes_data = [{
+                    "path": out_wav,
+                    "seed": "-",
+                    "custom_title": "#### 🌊 フェード加工音源",
+                    "meta": f"🌊 **フェード加工済み** | `{os.path.basename(out_wav)}`",
+                }]
+                cards_updates = build_take_cards_dict(cards_list, takes_data, active_idx=0)
+                banner_msg = f"🌊 **現在採用中:** フェード加工音源 (`{os.path.basename(out_wav)}`)"
+                display_msg = f"🌊 **現在の加工対象:** フェード加工音源 (`{os.path.basename(out_wav)}`)"
+
+                return {
+                    status_text: f"✅ {msg}",
+                    active_take_indicator: banner_msg,
+                    active_audio_target: out_wav,
+                    active_target_display: display_msg,
+                    processor_accordion: gr.update(open=True),
+                    history_dropdown: gr.update(choices=new_choices, value=out_wav),
+                    **cards_updates,
+                }
+            except Exception as e:
+                return {status_text: f"❌ フェード加工エラー: {str(e)}"}
+
+        def inner_on_select_history(file_path):
+            if not file_path:
+                return {}
+            real_path = resolve_output_path(file_path)
+            if not real_path or not os.path.exists(real_path):
+                return {status_text: "⚠️ 選択された履歴ファイルが存在しません。"}
+
+            item = find_history_item(real_path)
+            if not item:
+                meta_str = f"`{os.path.basename(real_path)}`"
+                status_msg = f"選択: {os.path.basename(real_path)}"
+            else:
+                is_sfx = (item.bpm <= 0) or is_sfx_model(item.model_id)
+                bpm_info = "SFX (BPMなし)" if is_sfx else f"{item.bpm} BPM"
+                icon = "🍃" if is_sfx else "🎵"
+                ref_info = f"\n> 🔄 *参考音源: {item.init_audio_filename} (アレンジ強度: {item.init_noise_level})*" if getattr(item, "init_audio_filename", None) else ""
+                meta_str = f"{icon} **履歴音源** | {item.created_at} | {bpm_info} | Seed: `{item.seed}`\n> *{item.prompt}*{ref_info}"
+                status_msg = f"{icon} **履歴を読み込みました:** {item.created_at} | {bpm_info} | seed: {item.seed}"
+
+            takes_data = [{
+                "path": real_path,
+                "seed": item.seed if item else "-",
+                "custom_title": "#### 📜 選択された履歴音源",
+                "meta": meta_str,
+            }]
+            cards_updates = build_take_cards_dict(cards_list, takes_data, active_idx=0)
+            banner_msg = (
+                f"📜 **現在採用中:** 履歴音源 (`{os.path.basename(real_path)}`) "
+                f"— 直下のオーディオ加工（ループ＆フェード）の対象にセットされています"
+            )
+            display_msg = f"🎵 **現在の加工対象:** 履歴音源 (`{os.path.basename(real_path)}`)"
+
+            return {
+                status_text: status_msg,
+                active_take_indicator: banner_msg,
+                active_audio_target: real_path,
+                active_target_display: display_msg,
+                processor_accordion: gr.update(open=True),
+                **cards_updates,
+            }
+
+        def inner_set_as_init_audio(hist_path, active_path):
+            chosen = resolve_output_path(hist_path) or resolve_output_path(active_path)
+            if chosen and os.path.exists(chosen):
+                fname = os.path.basename(chosen)
+                gr.Info(f"🔄 音源「{fname}」を参考音源にセットしました！")
+                return (
+                    chosen,
+                    gr.update(open=True),
+                    f"🔄 音源「{fname}」を参考音源にセットしました！（プロンプトやアレンジ強度を設定して生成できます）",
+                )
+            return (
+                gr.update(),
+                gr.update(),
+                "⚠️ 履歴から音源を選択するか、生成テイクを採用してください。",
+            )
+
         # Generate action (Single or Multi-Take Audition Feed)
         generate_btn.click(
-            fn=handle_generate,
+            fn=inner_handle_generate,
             inputs=[
                 prompt,
                 negative_prompt,
@@ -868,73 +1195,41 @@ def create_ui() -> gr.Blocks:
                 init_noise_level,
                 num_takes,
             ],
-            outputs=[
-                status_text,
-                history_dropdown,
-                active_audio_target,
-                active_target_display,
-                take_card_1,
-                take_title_1,
-                take_player_1,
-                take_meta_1,
-                take_card_2,
-                take_title_2,
-                take_player_2,
-                take_meta_2,
-                take_card_3,
-                take_title_3,
-                take_player_3,
-                take_meta_3,
-                take_card_4,
-                take_title_4,
-                take_player_4,
-                take_meta_4,
-            ],
+            outputs=audition_feed_outputs,
         )
 
         # Adopt Take button actions
         select_take_1_btn.click(
-            fn=lambda a: on_adopt_take(1, a),
-            inputs=[take_player_1],
-            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
+            fn=lambda p1, p2, p3, p4: inner_on_adopt_take(1, p1, p2, p3, p4),
+            inputs=[take_player_1, take_player_2, take_player_3, take_player_4],
+            outputs=audition_feed_outputs,
         )
         select_take_2_btn.click(
-            fn=lambda a: on_adopt_take(2, a),
-            inputs=[take_player_2],
-            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
+            fn=lambda p1, p2, p3, p4: inner_on_adopt_take(2, p1, p2, p3, p4),
+            inputs=[take_player_1, take_player_2, take_player_3, take_player_4],
+            outputs=audition_feed_outputs,
         )
         select_take_3_btn.click(
-            fn=lambda a: on_adopt_take(3, a),
-            inputs=[take_player_3],
-            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
+            fn=lambda p1, p2, p3, p4: inner_on_adopt_take(3, p1, p2, p3, p4),
+            inputs=[take_player_1, take_player_2, take_player_3, take_player_4],
+            outputs=audition_feed_outputs,
         )
         select_take_4_btn.click(
-            fn=lambda a: on_adopt_take(4, a),
-            inputs=[take_player_4],
-            outputs=[active_audio_target, active_target_display, status_text, history_dropdown],
+            fn=lambda p1, p2, p3, p4: inner_on_adopt_take(4, p1, p2, p3, p4),
+            inputs=[take_player_1, take_player_2, take_player_3, take_player_4],
+            outputs=audition_feed_outputs,
         )
 
         # History Gallery Actions
         history_dropdown.input(
-            fn=on_select_history,
+            fn=inner_on_select_history,
             inputs=[history_dropdown],
-            outputs=[
-                status_text,
-                active_audio_target,
-                active_target_display,
-                take_card_1,
-                take_title_1,
-                take_player_1,
-                take_meta_1,
-                take_card_2,
-                take_card_3,
-                take_card_4,
-            ],
+            outputs=audition_feed_outputs,
         )
 
         restore_btn.click(
             fn=on_restore_settings,
-            inputs=[history_dropdown],
+            inputs=[history_dropdown, num_takes],
             outputs=[
                 prompt,
                 negative_prompt,
@@ -952,16 +1247,8 @@ def create_ui() -> gr.Blocks:
         )
 
         set_as_init_audio_btn.click(
-            fn=lambda file_path: (
-                file_path,
-                gr.update(open=True),
-                f"🔄 履歴音源「{os.path.basename(file_path)}」を参考音源にセットしました！（プロンプトやアレンジ強度を設定して生成できます）",
-            ) if file_path and os.path.exists(file_path) else (
-                gr.update(),
-                gr.update(),
-                "⚠️ 履歴から音源を選択してください。",
-            ),
-            inputs=[history_dropdown],
+            fn=inner_set_as_init_audio,
+            inputs=[history_dropdown, active_audio_target],
             outputs=[init_audio, init_audio_accordion, status_text],
         )
 
@@ -980,39 +1267,15 @@ def create_ui() -> gr.Blocks:
 
         # Post-Processing actions (Seamless Loop & Fade)
         create_loop_btn.click(
-            fn=handle_create_loop,
+            fn=inner_on_create_loop,
             inputs=[active_audio_target, history_dropdown, crossfade_slider],
-            outputs=[
-                active_audio_target,
-                active_target_display,
-                take_player_1,
-                status_text,
-                history_dropdown,
-                take_title_1,
-                take_meta_1,
-                take_card_1,
-                take_card_2,
-                take_card_3,
-                take_card_4,
-            ],
+            outputs=audition_feed_outputs,
         )
 
         apply_fade_btn.click(
-            fn=handle_apply_fade,
+            fn=inner_on_apply_fade,
             inputs=[active_audio_target, history_dropdown, fade_in_slider, fade_out_slider],
-            outputs=[
-                active_audio_target,
-                active_target_display,
-                take_player_1,
-                status_text,
-                history_dropdown,
-                take_title_1,
-                take_meta_1,
-                take_card_1,
-                take_card_2,
-                take_card_3,
-                take_card_4,
-            ],
+            outputs=audition_feed_outputs,
         )
 
         # Shutdown Javascript Confirmation UX
